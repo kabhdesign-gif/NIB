@@ -1,0 +1,1312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sketch</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #f4f4f5;
+    --surface: #26262b;
+    --surface-hover: #32323a;
+    --border: #3a3a42;
+    --text: #e0e0e4;
+    --text-dim: #8a8a94;
+    --accent: #5bf0a5;
+    --canvas-bg: #ffffff;
+  }
+
+  body {
+    background: var(--canvas-bg);
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+    user-select: none;
+    touch-action: none;
+  }
+
+  #canvas-container { position: absolute; inset: 0; z-index: 0; }
+  canvas { display: block; touch-action: none; }
+
+  .toolbar {
+    position: absolute;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 6px 8px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    flex-wrap: wrap;
+    max-width: 95vw;
+    justify-content: center;
+  }
+
+  .toolbar button, .toolbar label {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    background: transparent; border: none; color: var(--text-dim);
+    font-family: inherit; font-size: 11px; font-weight: 500;
+    padding: 8px 12px; border-radius: 7px; cursor: pointer;
+    transition: all 0.15s; white-space: nowrap;
+  }
+  .toolbar button:hover, .toolbar label:hover { background: var(--surface-hover); color: var(--text); }
+  .toolbar button:active { transform: scale(0.96); }
+  .toolbar button.active { background: var(--accent); color: #111; }
+  .toolbar button.toggle-on {
+    background: rgba(91,240,165,0.15); color: var(--accent);
+    border: 1px solid rgba(91,240,165,0.3);
+  }
+  .toolbar button:disabled { opacity: 0.3; pointer-events: none; }
+
+  .sep { width: 1px; height: 24px; background: var(--border); margin: 0 4px; flex-shrink: 0; }
+
+  .color-swatch {
+    width: 22px; height: 22px; border-radius: 50%;
+    border: 2px solid var(--border); cursor: pointer;
+    transition: border-color 0.15s, transform 0.15s; flex-shrink: 0;
+  }
+  .color-swatch:hover { transform: scale(1.15); }
+  .color-swatch.active { border-color: var(--accent); transform: scale(1.15); }
+
+  .color-input { width: 0; height: 0; opacity: 0; position: absolute; }
+
+  input[type="range"] {
+    -webkit-appearance: none; width: 80px; height: 4px;
+    background: var(--border); border-radius: 2px; outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px;
+    border-radius: 50%; background: var(--accent); cursor: pointer;
+  }
+
+  .size-label { font-size: 10px; color: var(--text-dim); min-width: 20px; text-align: center; }
+
+  .status {
+    position: absolute; bottom: 16px; left: 16px; z-index: 10;
+    font-size: 10px; color: #999; letter-spacing: 0.5px;
+  }
+  .pen-info {
+    position: absolute; bottom: 16px; right: 16px; z-index: 10;
+    font-size: 10px; color: #999; letter-spacing: 0.5px; text-align: right;
+  }
+  .pen-info .detected { color: #2a9d5c; }
+
+  .toast {
+    position: absolute; bottom: 16px; left: 50%;
+    transform: translateX(-50%) translateY(60px); z-index: 20;
+    background: var(--surface); border: 1px solid var(--border);
+    padding: 10px 20px; border-radius: 8px; font-size: 12px;
+    color: var(--accent); opacity: 0; transition: all 0.3s ease;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* Eraser cursor overlay */
+  #eraser-cursor {
+    position: absolute; pointer-events: none; z-index: 5;
+    border: 2px solid rgba(0,0,0,0.4); border-radius: 50%;
+    display: none; transform: translate(-50%, -50%);
+  }
+
+  /* Symmetry overlay */
+  #symmetry-overlay {
+    position: absolute; inset: 0; z-index: 4;
+    pointer-events: none; display: none;
+  }
+  #symmetry-overlay svg { width: 100%; height: 100%; position: absolute; inset: 0; }
+  #symmetry-overlay .sym-line { stroke: rgba(91,240,165,0.5); stroke-width: 1.5; stroke-dasharray: 8 6; }
+
+  .sym-handle {
+    position: absolute; width: 18px; height: 18px; border-radius: 50%;
+    background: var(--accent); border: 2px solid #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    transform: translate(-50%, -50%); cursor: grab;
+    pointer-events: auto; z-index: 6;
+    display: none;
+  }
+  .sym-handle:active { cursor: grabbing; transform: translate(-50%, -50%) scale(1.2); }
+
+  svg { display: inline; vertical-align: middle; }
+</style>
+</head>
+<body>
+
+<div class="toolbar" id="toolbar">
+  <button id="btn-pen" class="active" title="Pen (P)">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+    Pen
+  </button>
+  <button id="btn-eraser" title="Eraser (E / ~)">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20H7L3 16l9-9 8 8-4 4z"/><path d="m6.5 17.5 5-5"/></svg>
+    Eraser
+  </button>
+  <button id="btn-lasso" title="Lasso Fill (L)">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12c0-4.97 4.03-9 9-9s9 4.03 9 9-4.03 9-9 9c-2.12 0-4.07-.74-5.6-1.97"/><circle cx="6" cy="18" r="3"/></svg>
+    Lasso
+  </button>
+
+  <div class="sep"></div>
+
+  <div class="size-label" id="size-val">6</div>
+  <input type="range" id="size-slider" min="1" max="40" value="6" title="Pen size">
+
+  <div class="sep"></div>
+
+  <span style="font-size:10px;color:var(--text-dim);" id="eraser-size-group">
+    <span>Er:</span>
+  </span>
+  <div class="size-label" id="eraser-size-val">20</div>
+  <input type="range" id="eraser-size-slider" min="5" max="80" value="20" title="Eraser size">
+
+  <div class="sep"></div>
+
+  <button id="btn-pressure" class="toggle-on" title="Pressure (T)">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20"/><path d="M2 12c0-3 2-5 5-5s5 2 5 5-2 5-5 5"/><path d="M22 12c0-3-2-5-5-5s-5 2-5 5 2 5 5 5"/></svg>
+    Pressure
+  </button>
+  <button id="btn-stabilize" class="toggle-on" title="Smooth (S)">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12c2-4 6-4 8 0s6 4 8 0"/></svg>
+    Smooth
+  </button>
+  <button id="btn-symmetry" title="Symmetry (M)">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="2" x2="12" y2="22"/><path d="M17 7l-5 5 5 5"/><path d="M7 7l5 5-5 5"/></svg>
+    Mirror
+  </button>
+
+  <div class="sep"></div>
+
+  <div id="swatches" style="display:flex;gap:4px;align-items:center;"></div>
+  <label title="Custom color" style="position:relative;">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0110 10"/><path d="M12 2a10 10 0 00-10 10"/><path d="M2 12h20"/></svg>
+    <input type="color" class="color-input" id="color-picker" value="#111111">
+  </label>
+
+  <div class="sep"></div>
+
+  <button id="btn-undo" disabled title="Undo (Ctrl+Z)">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 105.64-11.36L1 10"/></svg>
+    Undo
+  </button>
+  <button id="btn-clear" title="Clear all">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+    Clear
+  </button>
+
+  <div class="sep"></div>
+
+  <button id="btn-png" title="Export PNG">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    PNG
+  </button>
+  <button id="btn-gltf" title="Export glTF">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    glTF
+  </button>
+  <button id="btn-timelapse" title="Export Timelapse Video">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+    TM
+  </button>
+</div>
+
+<div id="export-overlay" style="display:none; position:absolute; inset:0; z-index:50; background:rgba(0,0,0,0.7); align-items:center; justify-content:center; flex-direction:column; gap:12px;">
+  <div style="color:#e0e0e4; font-family:'IBM Plex Mono',monospace; font-size:14px;" id="export-status">Exporting timelapse...</div>
+  <div style="width:300px; height:6px; background:#3a3a42; border-radius:3px; overflow:hidden;">
+    <div id="export-progress" style="height:100%; width:0%; background:#5bf0a5; border-radius:3px; transition:width 0.1s;"></div>
+  </div>
+  <div style="color:#8a8a94; font-family:'IBM Plex Mono',monospace; font-size:11px;" id="export-detail"></div>
+</div>
+
+<div class="status" id="status">strokes: 0 | history: 0/15</div>
+<div class="pen-info" id="pen-info">pen: waiting</div>
+<div class="toast" id="toast"></div>
+<div id="eraser-cursor"></div>
+<div id="symmetry-overlay">
+  <svg><line id="sym-line" class="sym-line" x1="0" y1="0" x2="0" y2="0"/></svg>
+</div>
+<div class="sym-handle" id="sym-handle-a"></div>
+<div class="sym-handle" id="sym-handle-b"></div>
+<div id="canvas-container"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+// ─── CONFIG ───
+const PALETTE = ['#111111','#e0e0e4','#5bf0a5','#f05b5b','#5ba8f0','#f0d45b','#c45bf0','#f0935b'];
+const MAX_HISTORY = 15;
+const MIN_PRESSURE_WIDTH = 0.1;
+const PRESSURE_SMOOTH_WINDOW = 5;
+
+// ─── STATE ───
+let currentColor = PALETTE[0]; // black
+let currentSize = 6;
+let eraserSize = 20;
+let isDrawing = false;
+let currentTool = 'pen'; // 'pen' | 'eraser' | 'lasso'
+let pressureEnabled = true;
+let smoothingEnabled = true;
+let currentStrokeData = [];
+let lassoPoints = [];       // Vector3[] for lasso outline
+let strokes = [];
+let undoStack = [];
+let previewMesh = null;
+let lassoPreviewLine = null;
+let penDetected = false;
+let eraserUndoSaved = false;
+
+// Symmetry
+let symmetryEnabled = false;
+let symA = null;
+let symB = null;
+let draggingHandle = null;
+let mirrorPreviewMesh = null;
+
+// Timelapse
+let timelineEpoch = 0;       // Date.now() of first stroke
+let currentStrokeStart = 0;  // Date.now() when current stroke began
+let isExporting = false;
+
+// ─── THREE SETUP ───
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, preserveDrawingBuffer: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0xffffff, 1); // white background
+document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.OrthographicCamera(
+  -window.innerWidth / 2, window.innerWidth / 2,
+  window.innerHeight / 2, -window.innerHeight / 2, 0.1, 100
+);
+camera.position.z = 10;
+
+const drawPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+// ─── ERASER CURSOR ───
+const eraserCursorEl = document.getElementById('eraser-cursor');
+function updateEraserCursor(e) {
+  if (currentTool === 'eraser') {
+    eraserCursorEl.style.display = 'block';
+    eraserCursorEl.style.width = eraserSize * 2 + 'px';
+    eraserCursorEl.style.height = eraserSize * 2 + 'px';
+    eraserCursorEl.style.left = e.clientX + 'px';
+    eraserCursorEl.style.top = e.clientY + 'px';
+  } else {
+    eraserCursorEl.style.display = 'none';
+  }
+}
+
+// ─── SYMMETRY ───
+const symOverlay = document.getElementById('symmetry-overlay');
+const symLineEl = document.getElementById('sym-line');
+const symHandleA = document.getElementById('sym-handle-a');
+const symHandleB = document.getElementById('sym-handle-b');
+
+function initSymmetryDefaults() {
+  // Default: vertical line through center
+  symA = new THREE.Vector3(0, window.innerHeight / 2, 0);
+  symB = new THREE.Vector3(0, -window.innerHeight / 2, 0);
+}
+initSymmetryDefaults();
+
+function worldToScreen(worldPos) {
+  const v = worldPos.clone().project(camera);
+  return {
+    x: (v.x * 0.5 + 0.5) * window.innerWidth,
+    y: (-v.y * 0.5 + 0.5) * window.innerHeight
+  };
+}
+
+function screenToWorld(sx, sy) {
+  const nx = (sx / window.innerWidth) * 2 - 1;
+  const ny = -(sy / window.innerHeight) * 2 + 1;
+  const v = new THREE.Vector3(nx, ny, 0).unproject(camera);
+  v.z = 0;
+  return v;
+}
+
+function reflectPoint(p, a, b) {
+  // Reflect point p across line defined by a→b
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) return p.clone();
+  const nx = -dy, ny = dx; // normal (unnormalized)
+  const vx = p.x - a.x, vy = p.y - a.y;
+  const dot = (vx * nx + vy * ny) / len2;
+  return new THREE.Vector3(p.x - 2 * dot * nx, p.y - 2 * dot * ny, 0);
+}
+
+function mirrorStrokeData(strokeData) {
+  return strokeData.map(d => ({
+    pos: reflectPoint(d.pos, symA, symB),
+    pressure: d.pressure
+  }));
+}
+
+function mirrorPoints(points) {
+  return points.map(p => reflectPoint(p, symA, symB));
+}
+
+function updateSymmetryOverlay() {
+  if (!symmetryEnabled) {
+    symOverlay.style.display = 'none';
+    symHandleA.style.display = 'none';
+    symHandleB.style.display = 'none';
+    return;
+  }
+  symOverlay.style.display = 'block';
+  symHandleA.style.display = 'block';
+  symHandleB.style.display = 'block';
+
+  const sa = worldToScreen(symA);
+  const sb = worldToScreen(symB);
+
+  symLineEl.setAttribute('x1', sa.x);
+  symLineEl.setAttribute('y1', sa.y);
+  symLineEl.setAttribute('x2', sb.x);
+  symLineEl.setAttribute('y2', sb.y);
+
+  symHandleA.style.left = sa.x + 'px';
+  symHandleA.style.top = sa.y + 'px';
+  symHandleB.style.left = sb.x + 'px';
+  symHandleB.style.top = sb.y + 'px';
+}
+
+// Handle dragging
+symHandleA.addEventListener('pointerdown', (e) => {
+  e.stopPropagation(); draggingHandle = 'a';
+  symHandleA.setPointerCapture(e.pointerId);
+});
+symHandleB.addEventListener('pointerdown', (e) => {
+  e.stopPropagation(); draggingHandle = 'b';
+  symHandleB.setPointerCapture(e.pointerId);
+});
+
+document.addEventListener('pointermove', (e) => {
+  if (!draggingHandle) return;
+  const wp = screenToWorld(e.clientX, e.clientY);
+  if (draggingHandle === 'a') symA.copy(wp);
+  else symB.copy(wp);
+  updateSymmetryOverlay();
+});
+
+document.addEventListener('pointerup', () => { draggingHandle = null; });
+
+// ─── SMOOTHING ───
+function smoothStrokeData(data) {
+  if (!smoothingEnabled || data.length < 3) return data;
+  let pts = data.map(d => ({ pos: d.pos.clone(), pressure: d.pressure }));
+
+  for (let iter = 0; iter < 2; iter++) {
+    const next = [pts[0]];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[i], p1 = pts[i + 1];
+      next.push({
+        pos: new THREE.Vector3(p0.pos.x*0.75+p1.pos.x*0.25, p0.pos.y*0.75+p1.pos.y*0.25, 0),
+        pressure: p0.pressure*0.75+p1.pressure*0.25
+      }, {
+        pos: new THREE.Vector3(p0.pos.x*0.25+p1.pos.x*0.75, p0.pos.y*0.25+p1.pos.y*0.75, 0),
+        pressure: p0.pressure*0.25+p1.pressure*0.75
+      });
+    }
+    next.push(pts[pts.length - 1]);
+    pts = next;
+  }
+
+  return pts.map((p, i) => {
+    const half = Math.floor(PRESSURE_SMOOTH_WINDOW / 2);
+    const start = Math.max(0, i - half);
+    const end = Math.min(pts.length, i + half + 1);
+    let sum = 0;
+    for (let j = start; j < end; j++) sum += pts[j].pressure;
+    return { pos: p.pos, pressure: sum / (end - start) };
+  });
+}
+
+// ─── RIBBON MESH ───
+function buildRibbonMesh(strokeData, baseWidth, color, transparent = false) {
+  if (strokeData.length < 2) return null;
+
+  const smooth = smoothStrokeData(strokeData);
+  const verts = [];
+  const indices = [];
+  const n = smooth.length;
+
+  for (let i = 0; i < n; i++) {
+    let dir;
+    if (i === 0) dir = new THREE.Vector2().subVectors(smooth[1].pos, smooth[0].pos);
+    else if (i === n-1) dir = new THREE.Vector2().subVectors(smooth[n-1].pos, smooth[n-2].pos);
+    else dir = new THREE.Vector2().subVectors(smooth[i+1].pos, smooth[i-1].pos);
+
+    const len = dir.length();
+    if (len > 0) dir.divideScalar(len); else dir.set(1, 0);
+    const perp = new THREE.Vector2(-dir.y, dir.x);
+
+    const pf = pressureEnabled ? MIN_PRESSURE_WIDTH + (1-MIN_PRESSURE_WIDTH)*smooth[i].pressure : 1;
+    const hw = (baseWidth * pf) / 2;
+
+    verts.push(
+      smooth[i].pos.x + perp.x*hw, smooth[i].pos.y + perp.y*hw, 0,
+      smooth[i].pos.x - perp.x*hw, smooth[i].pos.y - perp.y*hw, 0
+    );
+    if (i < n-1) {
+      const bi = i * 2;
+      indices.push(bi, bi+1, bi+2, bi+1, bi+3, bi+2);
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+    color: new THREE.Color(color), side: THREE.DoubleSide,
+    transparent, opacity: transparent ? 0.6 : 1
+  }));
+}
+
+function buildDot(pos, size, pressure, color) {
+  const pf = pressureEnabled ? MIN_PRESSURE_WIDTH + (1-MIN_PRESSURE_WIDTH)*pressure : 1;
+  const geo = new THREE.CircleGeometry((size*pf)/2, 16);
+  const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(color) });
+  const m = new THREE.Mesh(geo, mat);
+  m.position.copy(pos);
+  return m;
+}
+
+function buildStrokeMesh(strokeData, size, color) {
+  if (strokeData.length < 2) {
+    return buildDot(strokeData[0].pos, size, strokeData[0].pressure, color);
+  }
+  return buildRibbonMesh(strokeData, size, color);
+}
+
+// ─── LASSO FILL ───
+function buildLassoFill(points, color) {
+  if (points.length < 3) return null;
+  const shape = new THREE.Shape();
+  shape.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) {
+    shape.lineTo(points[i].x, points[i].y);
+  }
+  shape.closePath();
+  const geo = new THREE.ShapeGeometry(shape);
+  const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(color), side: THREE.DoubleSide });
+  return new THREE.Mesh(geo, mat);
+}
+
+function updateLassoPreview() {
+  // Remove old previews
+  if (lassoPreviewLine) {
+    scene.remove(lassoPreviewLine); lassoPreviewLine.geometry.dispose(); lassoPreviewLine.material.dispose(); lassoPreviewLine = null;
+  }
+  if (previewMesh) {
+    scene.remove(previewMesh); previewMesh.geometry.dispose(); previewMesh.material.dispose(); previewMesh = null;
+  }
+  if (mirrorPreviewMesh) {
+    scene.remove(mirrorPreviewMesh); mirrorPreviewMesh.geometry.dispose(); mirrorPreviewMesh.material.dispose(); mirrorPreviewMesh = null;
+  }
+  if (lassoPoints.length < 2) return;
+
+  // Outline
+  const closed = [...lassoPoints, lassoPoints[0]];
+  const data = closed.map(p => ({ pos: p.clone(), pressure: 0.5 }));
+  lassoPreviewLine = buildRibbonMesh(data, 1.5, currentColor, true);
+  if (lassoPreviewLine) { lassoPreviewLine.material.opacity = 0.4; scene.add(lassoPreviewLine); }
+
+  // Fill preview
+  if (lassoPoints.length >= 3) {
+    previewMesh = buildLassoFill(lassoPoints, currentColor);
+    if (previewMesh) {
+      previewMesh.material.transparent = true;
+      previewMesh.material.opacity = 0.15;
+      scene.add(previewMesh);
+    }
+    // Mirrored fill preview
+    if (symmetryEnabled) {
+      const mirroredPts = mirrorPoints(lassoPoints);
+      mirrorPreviewMesh = buildLassoFill(mirroredPts, currentColor);
+      if (mirrorPreviewMesh) {
+        mirrorPreviewMesh.material.transparent = true;
+        mirrorPreviewMesh.material.opacity = 0.15;
+        scene.add(mirrorPreviewMesh);
+      }
+    }
+  }
+}
+
+// ─── LIVE PREVIEW ───
+function updatePreview() {
+  if (previewMesh) { scene.remove(previewMesh); previewMesh.geometry.dispose(); previewMesh.material.dispose(); previewMesh = null; }
+  if (mirrorPreviewMesh) { scene.remove(mirrorPreviewMesh); mirrorPreviewMesh.geometry.dispose(); mirrorPreviewMesh.material.dispose(); mirrorPreviewMesh = null; }
+  if (currentStrokeData.length < 2) return;
+  previewMesh = buildRibbonMesh(currentStrokeData, currentSize, currentColor, true);
+  if (previewMesh) scene.add(previewMesh);
+
+  if (symmetryEnabled) {
+    const mirrored = mirrorStrokeData(currentStrokeData);
+    mirrorPreviewMesh = buildRibbonMesh(mirrored, currentSize, currentColor, true);
+    if (mirrorPreviewMesh) scene.add(mirrorPreviewMesh);
+  }
+}
+
+// ─── PARTIAL ERASER ───
+// Splits strokes where eraser circle intersects, removing affected points
+function eraseAt(worldPos, radius) {
+  const newStrokes = [];
+  let changed = false;
+
+  for (let si = strokes.length - 1; si >= 0; si--) {
+    const s = strokes[si];
+    // Check if any point in stroke is within eraser radius
+    let hasHit = false;
+    for (const d of s.strokeData) {
+      if (worldPos.distanceTo(d.pos) < radius) { hasHit = true; break; }
+    }
+    if (!hasHit) continue;
+
+    changed = true;
+
+    // Save undo once per erase drag
+    if (!eraserUndoSaved) {
+      eraserUndoSaved = true;
+      saveUndoState();
+    }
+
+    // Remove original mesh
+    scene.remove(s.mesh);
+    s.mesh.geometry.dispose();
+    s.mesh.material.dispose();
+
+    // Split strokeData into segments that survive
+    const segments = [];
+    let currentSeg = [];
+
+    for (const d of s.strokeData) {
+      if (worldPos.distanceTo(d.pos) < radius) {
+        // This point is erased — flush current segment
+        if (currentSeg.length >= 1) {
+          segments.push(currentSeg);
+        }
+        currentSeg = [];
+      } else {
+        currentSeg.push({ pos: d.pos.clone(), pressure: d.pressure });
+      }
+    }
+    if (currentSeg.length >= 1) segments.push(currentSeg);
+
+    // Remove old stroke
+    strokes.splice(si, 1);
+
+    // Add surviving segments as new strokes
+    for (const seg of segments) {
+      const mesh = buildStrokeMesh(seg, s.size, s.color);
+      if (mesh) {
+        scene.add(mesh);
+        strokes.push({ mesh, strokeData: seg, color: s.color, size: s.size, drawStartAt: s.drawStartAt, createdAt: s.createdAt });
+      }
+    }
+  }
+
+  if (changed) updateStatus();
+}
+
+// ─── UNDO ───
+function saveUndoState() {
+  const snapshot = strokes.map(s => ({
+    strokeData: s.strokeData.map(d => ({ pos: d.pos.clone(), pressure: d.pressure })),
+    color: s.color, size: s.size, isLasso: !!s.isLasso,
+    drawStartAt: s.drawStartAt || 0, createdAt: s.createdAt || 0
+  }));
+  undoStack.push(snapshot);
+  if (undoStack.length > MAX_HISTORY) undoStack.shift();
+  updateStatus();
+}
+
+function undo() {
+  if (undoStack.length === 0) return;
+  for (const s of strokes) { scene.remove(s.mesh); s.mesh.geometry.dispose(); s.mesh.material.dispose(); }
+  strokes = [];
+  const snapshot = undoStack.pop();
+  for (const data of snapshot) {
+    let mesh;
+    if (data.isLasso) {
+      const pts = data.strokeData.map(d => d.pos);
+      mesh = buildLassoFill(pts, data.color);
+    } else {
+      mesh = buildStrokeMesh(data.strokeData, data.size, data.color);
+    }
+    if (mesh) {
+      scene.add(mesh);
+      strokes.push({ mesh, strokeData: data.strokeData, color: data.color, size: data.size, isLasso: !!data.isLasso, drawStartAt: data.drawStartAt, createdAt: data.createdAt });
+    }
+  }
+  updateStatus();
+}
+
+// ─── INPUT ───
+function getWorldPos(e) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const target = new THREE.Vector3();
+  raycaster.ray.intersectPlane(drawPlane, target);
+  return target;
+}
+
+function getPressure(e) {
+  if (e.pointerType === 'pen') {
+    if (!penDetected) { penDetected = true; showToast('Pen tablet detected'); }
+    return e.pressure;
+  }
+  return 0.5;
+}
+
+function updatePenInfo(e) {
+  const info = document.getElementById('pen-info');
+  if (e.pointerType === 'pen') {
+    info.innerHTML = `<span class="detected">pen</span> | p: ${e.pressure.toFixed(2)} | tilt: ${e.tiltX||0}°,${e.tiltY||0}°`;
+  } else {
+    info.textContent = penDetected ? `pen ok | ${e.pointerType}` : e.pointerType;
+  }
+}
+
+function addSample(e) {
+  const pos = getWorldPos(e);
+  const pressure = getPressure(e);
+  const last = currentStrokeData[currentStrokeData.length - 1];
+  if (last && pos.distanceTo(last.pos) < 1.5) return;
+  currentStrokeData.push({ pos, pressure });
+}
+
+// ─── POINTER EVENTS ───
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0 || isExporting) return;
+  if (penDetected && e.pointerType === 'touch') return;
+  isDrawing = true;
+  updatePenInfo(e);
+  updateEraserCursor(e);
+
+  const pos = getWorldPos(e);
+  currentStrokeStart = Date.now();
+  if (!timelineEpoch) timelineEpoch = currentStrokeStart;
+
+  if (currentTool === 'eraser') {
+    eraserUndoSaved = false;
+    eraseAt(pos, eraserSize);
+    return;
+  }
+
+  if (currentTool === 'lasso') {
+    lassoPoints = [pos];
+    renderer.domElement.setPointerCapture(e.pointerId);
+    return;
+  }
+
+  // pen
+  saveUndoState();
+  currentStrokeData = [{ pos, pressure: getPressure(e) }];
+  renderer.domElement.setPointerCapture(e.pointerId);
+});
+
+renderer.domElement.addEventListener('pointermove', (e) => {
+  updatePenInfo(e);
+  updateEraserCursor(e);
+  if (penDetected && e.pointerType === 'touch') return;
+  if (!isDrawing) return;
+
+  if (currentTool === 'eraser') {
+    eraseAt(getWorldPos(e), eraserSize);
+    return;
+  }
+
+  if (currentTool === 'lasso') {
+    const pos = getWorldPos(e);
+    const last = lassoPoints[lassoPoints.length - 1];
+    if (pos.distanceTo(last) >= 3) {
+      lassoPoints.push(pos);
+      updateLassoPreview();
+    }
+    return;
+  }
+
+  // pen
+  if (e.getCoalescedEvents) {
+    for (const ce of e.getCoalescedEvents()) addSample(ce);
+  } else {
+    addSample(e);
+  }
+  updatePreview();
+});
+
+renderer.domElement.addEventListener('pointerup', (e) => {
+  if (!isDrawing) return;
+  if (penDetected && e.pointerType === 'touch') return;
+  isDrawing = false;
+  eraserUndoSaved = false;
+  const now = Date.now();
+
+  if (currentTool === 'eraser') return;
+
+  if (currentTool === 'lasso') {
+    if (lassoPreviewLine) { scene.remove(lassoPreviewLine); lassoPreviewLine.geometry.dispose(); lassoPreviewLine.material.dispose(); lassoPreviewLine = null; }
+    if (previewMesh) { scene.remove(previewMesh); previewMesh.geometry.dispose(); previewMesh.material.dispose(); previewMesh = null; }
+    if (mirrorPreviewMesh) { scene.remove(mirrorPreviewMesh); mirrorPreviewMesh.geometry.dispose(); mirrorPreviewMesh.material.dispose(); mirrorPreviewMesh = null; }
+
+    if (lassoPoints.length >= 3) {
+      saveUndoState();
+      const fillMesh = buildLassoFill(lassoPoints, currentColor);
+      if (fillMesh) {
+        scene.add(fillMesh);
+        const strokeData = lassoPoints.map(p => ({ pos: p.clone(), pressure: 0.5 }));
+        strokes.push({ mesh: fillMesh, strokeData, color: currentColor, size: 0, isLasso: true, drawStartAt: currentStrokeStart, createdAt: now });
+      }
+      if (symmetryEnabled) {
+        const mirroredPts = mirrorPoints(lassoPoints);
+        const mirrorFill = buildLassoFill(mirroredPts, currentColor);
+        if (mirrorFill) {
+          scene.add(mirrorFill);
+          const mirrorData = mirroredPts.map(p => ({ pos: p.clone(), pressure: 0.5 }));
+          strokes.push({ mesh: mirrorFill, strokeData: mirrorData, color: currentColor, size: 0, isLasso: true, drawStartAt: currentStrokeStart, createdAt: now });
+        }
+      }
+    }
+    lassoPoints = [];
+    updateStatus();
+    return;
+  }
+
+  // pen
+  if (previewMesh) { scene.remove(previewMesh); previewMesh.geometry.dispose(); previewMesh.material.dispose(); previewMesh = null; }
+  if (mirrorPreviewMesh) { scene.remove(mirrorPreviewMesh); mirrorPreviewMesh.geometry.dispose(); mirrorPreviewMesh.material.dispose(); mirrorPreviewMesh = null; }
+
+  if (currentStrokeData.length === 0) return;
+  const mesh = buildStrokeMesh(currentStrokeData, currentSize, currentColor);
+  if (mesh) {
+    scene.add(mesh);
+    strokes.push({ mesh, strokeData: [...currentStrokeData], color: currentColor, size: currentSize, drawStartAt: currentStrokeStart, createdAt: now });
+  }
+
+  if (symmetryEnabled && currentStrokeData.length > 0) {
+    const mirroredData = mirrorStrokeData(currentStrokeData);
+    const mirrorMesh = buildStrokeMesh(mirroredData, currentSize, currentColor);
+    if (mirrorMesh) {
+      scene.add(mirrorMesh);
+      strokes.push({ mesh: mirrorMesh, strokeData: mirroredData, color: currentColor, size: currentSize, drawStartAt: currentStrokeStart, createdAt: now });
+    }
+  }
+
+  currentStrokeData = [];
+  updateStatus();
+});
+
+renderer.domElement.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
+renderer.domElement.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+
+// Also track mouse for eraser cursor when not drawing
+document.addEventListener('pointermove', (e) => { updateEraserCursor(e); });
+
+// ─── KEYBOARD ───
+window.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); }
+  if (e.key === 'p') setTool('pen');
+  if (e.key === 'e') setTool('eraser');
+  if (e.key === 'l') setTool('lasso');
+  // Tilde key toggles eraser
+  if (e.key === '`' || e.key === '~') {
+    setTool(currentTool === 'eraser' ? 'pen' : 'eraser');
+  }
+  if (e.key === 't') togglePressure();
+  if (e.key === 's' && !e.ctrlKey && !e.metaKey) toggleSmoothing();
+  if (e.key === 'm') toggleSymmetry();
+  if (e.key === '[') { currentSize = Math.max(1, currentSize - 1); syncSizeUI(); }
+  if (e.key === ']') { currentSize = Math.min(40, currentSize + 1); syncSizeUI(); }
+});
+
+// ─── TOOLBAR ───
+const swatchContainer = document.getElementById('swatches');
+PALETTE.forEach(c => {
+  const el = document.createElement('div');
+  el.className = 'color-swatch' + (c === currentColor ? ' active' : '');
+  el.style.background = c;
+  el.addEventListener('click', () => {
+    currentColor = c;
+    document.getElementById('color-picker').value = c;
+    document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+    el.classList.add('active');
+  });
+  swatchContainer.appendChild(el);
+});
+
+document.getElementById('color-picker').addEventListener('input', e => {
+  currentColor = e.target.value;
+  document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+});
+
+// Pen size
+const sizeSlider = document.getElementById('size-slider');
+const sizeVal = document.getElementById('size-val');
+sizeSlider.addEventListener('input', () => { currentSize = parseInt(sizeSlider.value); sizeVal.textContent = currentSize; });
+function syncSizeUI() { sizeSlider.value = currentSize; sizeVal.textContent = currentSize; }
+
+// Eraser size
+const eraserSizeSlider = document.getElementById('eraser-size-slider');
+const eraserSizeVal = document.getElementById('eraser-size-val');
+eraserSizeSlider.addEventListener('input', () => { eraserSize = parseInt(eraserSizeSlider.value); eraserSizeVal.textContent = eraserSize; });
+
+function setTool(tool) {
+  currentTool = tool;
+  document.getElementById('btn-pen').classList.toggle('active', tool === 'pen');
+  document.getElementById('btn-eraser').classList.toggle('active', tool === 'eraser');
+  document.getElementById('btn-lasso').classList.toggle('active', tool === 'lasso');
+  renderer.domElement.style.cursor = tool === 'eraser' ? 'none' : 'crosshair';
+  eraserCursorEl.style.display = tool === 'eraser' ? 'block' : 'none';
+}
+
+function togglePressure() {
+  pressureEnabled = !pressureEnabled;
+  document.getElementById('btn-pressure').classList.toggle('toggle-on', pressureEnabled);
+  showToast(pressureEnabled ? 'Pressure ON' : 'Pressure OFF');
+}
+function toggleSmoothing() {
+  smoothingEnabled = !smoothingEnabled;
+  document.getElementById('btn-stabilize').classList.toggle('toggle-on', smoothingEnabled);
+  showToast(smoothingEnabled ? 'Smoothing ON' : 'Smoothing OFF');
+}
+function toggleSymmetry() {
+  symmetryEnabled = !symmetryEnabled;
+  document.getElementById('btn-symmetry').classList.toggle('toggle-on', symmetryEnabled);
+  updateSymmetryOverlay();
+  showToast(symmetryEnabled ? 'Symmetry ON' : 'Symmetry OFF');
+}
+
+document.getElementById('btn-pen').addEventListener('click', () => setTool('pen'));
+document.getElementById('btn-eraser').addEventListener('click', () => setTool('eraser'));
+document.getElementById('btn-lasso').addEventListener('click', () => setTool('lasso'));
+document.getElementById('btn-undo').addEventListener('click', undo);
+document.getElementById('btn-pressure').addEventListener('click', togglePressure);
+document.getElementById('btn-stabilize').addEventListener('click', toggleSmoothing);
+document.getElementById('btn-symmetry').addEventListener('click', toggleSymmetry);
+
+document.getElementById('btn-clear').addEventListener('click', () => {
+  if (strokes.length === 0) return;
+  saveUndoState();
+  for (const s of strokes) { scene.remove(s.mesh); s.mesh.geometry.dispose(); s.mesh.material.dispose(); }
+  strokes = [];
+  updateStatus();
+});
+
+// ─── EXPORT PNG ───
+document.getElementById('btn-png').addEventListener('click', () => {
+  renderer.render(scene, camera);
+  const a = document.createElement('a');
+  a.href = renderer.domElement.toDataURL('image/png');
+  a.download = 'sketch.png';
+  a.click();
+  showToast('PNG exported');
+});
+
+// ─── EXPORT GLTF ───
+function buildGLTF() {
+  // Minimal glTF 2.0 builder for flat-color meshes
+  const gltf = {
+    asset: { version: "2.0", generator: "sketch-app" },
+    scene: 0,
+    scenes: [{ nodes: [] }],
+    nodes: [],
+    meshes: [],
+    accessors: [],
+    bufferViews: [],
+    buffers: [],
+    materials: []
+  };
+
+  const allBufferData = [];
+  let byteOffset = 0;
+
+  for (let i = 0; i < strokes.length; i++) {
+    const s = strokes[i];
+    const geo = s.mesh.geometry;
+    const posAttr = geo.getAttribute('position');
+    if (!posAttr) continue;
+
+    const posArray = new Float32Array(posAttr.array);
+
+    // Compute bounding box for accessor min/max
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (let j = 0; j < posArray.length; j += 3) {
+      minX = Math.min(minX, posArray[j]);
+      minY = Math.min(minY, posArray[j+1]);
+      minZ = Math.min(minZ, posArray[j+2]);
+      maxX = Math.max(maxX, posArray[j]);
+      maxY = Math.max(maxY, posArray[j+1]);
+      maxZ = Math.max(maxZ, posArray[j+2]);
+    }
+
+    const posBytes = posArray.buffer.slice(posArray.byteOffset, posArray.byteOffset + posArray.byteLength);
+    const posBufViewIdx = gltf.bufferViews.length;
+    gltf.bufferViews.push({
+      buffer: 0, byteOffset, byteLength: posArray.byteLength, target: 34962
+    });
+    allBufferData.push(new Uint8Array(posBytes));
+    byteOffset += posArray.byteLength;
+    // Pad to 4-byte alignment
+    const posPad = (4 - (posArray.byteLength % 4)) % 4;
+    if (posPad) { allBufferData.push(new Uint8Array(posPad)); byteOffset += posPad; }
+
+    const posAccessorIdx = gltf.accessors.length;
+    gltf.accessors.push({
+      bufferView: posBufViewIdx, componentType: 5126, count: posAttr.count,
+      type: "VEC3", max: [maxX, maxY, maxZ], min: [minX, minY, minZ]
+    });
+
+    let indexAccessorIdx = undefined;
+    const index = geo.getIndex();
+    if (index) {
+      // Detect if indices are 16-bit or 32-bit
+      const use32 = index.array instanceof Uint32Array || posAttr.count > 65535;
+      const idxArray = use32 ? new Uint32Array(index.array) : new Uint16Array(index.array);
+      const idxBytes = idxArray.buffer.slice(idxArray.byteOffset, idxArray.byteOffset + idxArray.byteLength);
+      const idxBufViewIdx = gltf.bufferViews.length;
+      gltf.bufferViews.push({
+        buffer: 0, byteOffset, byteLength: idxArray.byteLength, target: 34963
+      });
+      allBufferData.push(new Uint8Array(idxBytes));
+      byteOffset += idxArray.byteLength;
+      const idxPad = (4 - (idxArray.byteLength % 4)) % 4;
+      if (idxPad) { allBufferData.push(new Uint8Array(idxPad)); byteOffset += idxPad; }
+
+      indexAccessorIdx = gltf.accessors.length;
+      gltf.accessors.push({
+        bufferView: idxBufViewIdx,
+        componentType: use32 ? 5125 : 5123,
+        count: index.count, type: "SCALAR"
+      });
+    }
+
+    // Material
+    const col = s.mesh.material.color;
+    const matIdx = gltf.materials.length;
+    gltf.materials.push({
+      pbrMetallicRoughness: {
+        baseColorFactor: [col.r, col.g, col.b, 1.0],
+        metallicFactor: 0, roughnessFactor: 1
+      },
+      doubleSided: true
+    });
+
+    // Mesh primitive
+    const meshIdx = gltf.meshes.length;
+    const primitive = { attributes: { POSITION: posAccessorIdx }, material: matIdx };
+    if (indexAccessorIdx !== undefined) primitive.indices = indexAccessorIdx;
+    gltf.meshes.push({ primitives: [primitive] });
+
+    // Node
+    const nodeIdx = gltf.nodes.length;
+    const node = { mesh: meshIdx };
+    // Apply position offset for dots
+    const p = s.mesh.position;
+    if (p.x !== 0 || p.y !== 0 || p.z !== 0) {
+      node.translation = [p.x, p.y, p.z];
+    }
+    gltf.nodes.push(node);
+    gltf.scenes[0].nodes.push(nodeIdx);
+  }
+
+  // Combine all buffer data into a single base64 data URI
+  const totalLen = allBufferData.reduce((sum, a) => sum + a.length, 0);
+  const combined = new Uint8Array(totalLen);
+  let off = 0;
+  for (const chunk of allBufferData) { combined.set(chunk, off); off += chunk.length; }
+
+  // Convert to base64 data URI
+  let binary = '';
+  for (let i = 0; i < combined.length; i++) binary += String.fromCharCode(combined[i]);
+  const b64 = btoa(binary);
+  gltf.buffers.push({ uri: `data:application/octet-stream;base64,${b64}`, byteLength: totalLen });
+
+  return gltf;
+}
+
+document.getElementById('btn-gltf').addEventListener('click', () => {
+  if (strokes.length === 0) { showToast('Nothing to export'); return; }
+  try {
+    const gltf = buildGLTF();
+    const blob = new Blob([JSON.stringify(gltf)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'sketch.gltf'; a.click();
+    URL.revokeObjectURL(url);
+    showToast('glTF exported');
+  } catch (err) {
+    console.error('glTF export error:', err);
+    showToast('Export failed — check console');
+  }
+});
+
+// ─── EXPORT TIMELAPSE ───
+document.getElementById('btn-timelapse').addEventListener('click', () => {
+  if (strokes.length === 0) { showToast('Nothing to record'); return; }
+  if (isExporting) return;
+  exportTimelapse();
+});
+
+async function exportTimelapse() {
+  isExporting = true;
+  const overlay = document.getElementById('export-overlay');
+  const progressBar = document.getElementById('export-progress');
+  const statusEl = document.getElementById('export-status');
+  const detailEl = document.getElementById('export-detail');
+  overlay.style.display = 'flex';
+
+  // Hide toolbar + overlays during export
+  document.getElementById('toolbar').style.opacity = '0';
+  document.getElementById('toolbar').style.pointerEvents = 'none';
+  symOverlay.style.display = 'none';
+  symHandleA.style.display = 'none';
+  symHandleB.style.display = 'none';
+
+  // Snapshot current strokes with their data
+  const strokeList = strokes.map(s => ({
+    strokeData: s.strokeData,
+    color: s.color,
+    size: s.size,
+    isLasso: !!s.isLasso,
+    drawStartAt: s.drawStartAt || 0,
+    createdAt: s.createdAt || 0
+  }));
+
+  // Sort by createdAt
+  strokeList.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+
+  // Collapse idle gaps: any gap > threshold between strokes is compressed
+  const IDLE_THRESHOLD = 2000;  // gaps longer than 2s are idle
+  const GAP_TRANSITION = 200;   // replace idle gaps with 200ms
+  const firstTime = strokeList[0].drawStartAt || strokeList[0].createdAt;
+
+  // Compute compressed time for each stroke by removing idle time
+  let idleRemoved = 0;
+  for (let i = 1; i < strokeList.length; i++) {
+    const prevEnd = strokeList[i - 1].createdAt;
+    const curStart = strokeList[i].drawStartAt || strokeList[i].createdAt;
+    const gap = curStart - prevEnd;
+    if (gap > IDLE_THRESHOLD) {
+      idleRemoved += gap - GAP_TRANSITION;
+    }
+  }
+
+  const lastTime = strokeList[strokeList.length - 1].createdAt;
+  const rawDuration = lastTime - firstTime;
+  const compressedDuration = Math.max(rawDuration - idleRemoved, 2000);
+
+  const SPEED = 12;
+  const FPS = 30;
+  const playbackDuration = Math.max(compressedDuration / SPEED, 3000);
+  const totalFrames = Math.ceil((playbackDuration / 1000) * FPS);
+
+  const idleCut = ((rawDuration - compressedDuration) / 1000).toFixed(1);
+  statusEl.textContent = `Exporting timelapse (${(playbackDuration/1000).toFixed(1)}s @ ${SPEED}x)`;
+  detailEl.textContent = `${totalFrames} frames · ${strokeList.length} strokes · ${idleCut}s idle cut`;
+
+  // Choose codec
+  let mimeType = 'video/webm;codecs=vp9';
+  if (typeof MediaRecorder !== 'undefined') {
+    if (MediaRecorder.isTypeSupported('video/mp4;codecs=avc1')) mimeType = 'video/mp4;codecs=avc1';
+    else if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) mimeType = 'video/webm;codecs=vp9';
+    else if (MediaRecorder.isTypeSupported('video/webm;codecs=vp8')) mimeType = 'video/webm;codecs=vp8';
+    else mimeType = 'video/webm';
+  }
+  const isMP4 = mimeType.startsWith('video/mp4');
+  const fileExt = isMP4 ? 'mp4' : 'webm';
+
+  // Setup recorder
+  const stream = renderer.domElement.captureStream(0);
+  const recorder = new MediaRecorder(stream, {
+    mimeType,
+    videoBitsPerSecond: 2_000_000 // 2 Mbps for small file
+  });
+  const chunks = [];
+  recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+
+  const downloadPromise = new Promise(resolve => {
+    recorder.onstop = () => {
+      const blob = new Blob(chunks, { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sketch-timelapse.${fileExt}`;
+      a.click();
+      URL.revokeObjectURL(url);
+      resolve();
+    };
+  });
+
+  recorder.start();
+
+  // Hide all current meshes
+  const originalVisibility = strokes.map(s => s.mesh.visible);
+  strokes.forEach(s => { s.mesh.visible = false; });
+
+  // Track active partial mesh
+  let partialMesh = null;
+
+  // Pre-compute per-stroke timing in playback space (with gaps collapsed)
+  let accumulatedIdle = 0;
+  const strokeTimeline = strokeList.map((s, i) => {
+    // Accumulate idle gaps
+    if (i > 0) {
+      const prevEnd = strokeList[i - 1].createdAt;
+      const curStart = s.drawStartAt || s.createdAt;
+      const gap = curStart - prevEnd;
+      if (gap > IDLE_THRESHOLD) {
+        accumulatedIdle += gap - GAP_TRANSITION;
+      }
+    }
+    const drawStart = ((s.drawStartAt || s.createdAt) - firstTime - accumulatedIdle) / SPEED;
+    const drawEnd = (s.createdAt - firstTime - accumulatedIdle) / SPEED;
+    const duration = Math.max(drawEnd - drawStart, 100);
+    return { ...s, pStart: drawStart, pEnd: drawStart + duration };
+  });
+
+  // Find matching scene mesh for each timeline entry
+  // (sorted strokeList may not match strokes[] order, so match by reference)
+  const strokeMeshMap = new Map();
+  for (const s of strokes) {
+    // Find matching timeline entry by strokeData reference
+    for (const ts of strokeTimeline) {
+      if (ts.strokeData === s.strokeData) {
+        strokeMeshMap.set(ts, s.mesh);
+        break;
+      }
+    }
+  }
+
+  // Render frames
+  for (let frame = 0; frame <= totalFrames; frame++) {
+    const t = (frame / totalFrames) * playbackDuration; // ms in playback time
+
+    // Clean up partial mesh from previous frame
+    if (partialMesh) {
+      scene.remove(partialMesh);
+      partialMesh.geometry.dispose();
+      partialMesh.material.dispose();
+      partialMesh = null;
+    }
+
+    for (const ts of strokeTimeline) {
+      const mesh = strokeMeshMap.get(ts);
+      if (!mesh) continue;
+
+      if (t >= ts.pEnd) {
+        // Fully visible
+        mesh.visible = true;
+      } else if (t >= ts.pStart && t < ts.pEnd) {
+        // Partially drawing — progressive reveal
+        mesh.visible = false;
+        const progress = (t - ts.pStart) / (ts.pEnd - ts.pStart);
+        const pointCount = Math.max(2, Math.floor(ts.strokeData.length * progress));
+        const partialData = ts.strokeData.slice(0, pointCount);
+
+        if (ts.isLasso) {
+          if (partialData.length >= 3) {
+            const pts = partialData.map(d => d.pos);
+            partialMesh = buildLassoFill(pts, ts.color);
+          }
+        } else {
+          partialMesh = buildStrokeMesh(partialData, ts.size, ts.color);
+        }
+        if (partialMesh) scene.add(partialMesh);
+      } else {
+        mesh.visible = false;
+      }
+    }
+
+    renderer.render(scene, camera);
+
+    // Request frame capture
+    try {
+      const track = stream.getVideoTracks()[0];
+      if (track.requestFrame) track.requestFrame();
+    } catch (_) {}
+
+    // Update progress
+    progressBar.style.width = ((frame / totalFrames) * 100) + '%';
+
+    // Yield to let encoder process + update UI
+    await new Promise(r => setTimeout(r, 1000 / FPS));
+  }
+
+  // Cleanup partial mesh
+  if (partialMesh) {
+    scene.remove(partialMesh);
+    partialMesh.geometry.dispose();
+    partialMesh.material.dispose();
+  }
+
+  // Restore visibility
+  strokes.forEach((s, i) => { s.mesh.visible = originalVisibility[i]; });
+  renderer.render(scene, camera);
+
+  recorder.stop();
+  await downloadPromise;
+
+  // Restore UI
+  overlay.style.display = 'none';
+  document.getElementById('toolbar').style.opacity = '1';
+  document.getElementById('toolbar').style.pointerEvents = 'auto';
+  if (symmetryEnabled) updateSymmetryOverlay();
+  isExporting = false;
+  showToast(`Timelapse exported as .${fileExt}`);
+}
+
+// ─── UTILS ───
+function updateStatus() {
+  document.getElementById('status').textContent = `strokes: ${strokes.length} | history: ${undoStack.length}/${MAX_HISTORY}`;
+  document.getElementById('btn-undo').disabled = undoStack.length === 0;
+}
+
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2000);
+}
+
+// ─── RESIZE ───
+window.addEventListener('resize', () => {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h);
+  camera.left = -w/2; camera.right = w/2; camera.top = h/2; camera.bottom = -h/2;
+  camera.updateProjectionMatrix();
+  updateSymmetryOverlay();
+});
+
+// ─── RENDER ───
+(function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); })();
+updateStatus();
+</script>
+</body>
+</html>
