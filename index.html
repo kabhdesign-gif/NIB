@@ -22,11 +22,21 @@
 
   /* ── Toolbar ── */
   .toolbar {
-    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    position: absolute; top: 12px; left: 50%;
+    transform: translateX(-50%) scale(var(--tb-scale, 1));
+    transform-origin: top center;
     z-index: 10; display: flex; align-items: center; gap: 2px;
     background: #fff; border: 1px solid #000; border-radius: 6px;
     padding: 4px 6px; flex-wrap: wrap; max-width: 96vw; justify-content: center;
   }
+
+  .toolbar-resize {
+    position: absolute; bottom: -12px; left: 6px;
+    width: 22px; height: 14px; cursor: ns-resize; z-index: 11;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0.3; transition: opacity 0.15s; touch-action: none;
+  }
+  .toolbar-resize:hover, .toolbar-resize:active { opacity: 0.7; }
   .toolbar button, .toolbar label {
     display: flex; align-items: center; justify-content: center; gap: 5px;
     background: transparent; border: 1px solid transparent; color: #666;
@@ -135,6 +145,10 @@
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3" opacity="0.3"/><path d="M3 12c0-4.97 4.03-9 9-9s9 4.03 9 9"/></svg>
     Shade
   </button>
+  <button id="btn-radial" title="Radial Gradient (R)">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9" opacity="0.15"/><circle cx="12" cy="12" r="6" opacity="0.3"/><circle cx="12" cy="12" r="3" opacity="0.5"/></svg>
+    Glow
+  </button>
 
   <div class="sep"></div>
 
@@ -164,6 +178,9 @@
   <button id="btn-png" title="Export PNG">PNG</button>
   <button id="btn-gltf" title="Export glTF">glTF</button>
   <button id="btn-timelapse" title="Export Timelapse MP4">TM</button>
+  <div class="toolbar-resize" id="toolbar-resize" title="Drag to resize toolbar">
+    <svg width="14" height="8" viewBox="0 0 14 8" fill="none" stroke="#000" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="13" y2="1"/><line x1="3" y1="4" x2="11" y2="4"/><line x1="5" y1="7" x2="9" y2="7"/></svg>
+  </div>
 </div>
 
 <div class="status" id="status">strokes: 0</div>
@@ -195,7 +212,7 @@ const MIN_PRESSURE_WIDTH = 0.1;
 // ─── STATE ───
 let currentColor = PALETTE[0];
 let penSize = 1, brushSize = 6, eraserSize = 20;
-let currentTool = 'pen'; // pen | brush | eraser | lasso | gradient
+let currentTool = 'pen'; // pen | brush | eraser | lasso | gradient | radial
 let isDrawing = false;
 let pressureEnabled = true, smoothingEnabled = true;
 let currentStrokeData = [];
@@ -222,6 +239,7 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffe
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setClearColor(0xffffff, 1);
+renderer.sortObjects = false; // renderOrder controls draw order
 document.getElementById('canvas-container').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -333,18 +351,18 @@ function buildRibbonMesh(strokeData, baseWidth, color, opts={}) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(verts,3));
   geo.setIndex(indices); geo.computeVertexNormals();
-  const transparent = !!(opts.transparent || opts.opacity < 1);
+  const op = opts.opacity !== undefined ? opts.opacity : 1;
   return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
     color: new THREE.Color(color), side: THREE.DoubleSide,
-    transparent, opacity: opts.opacity !== undefined ? opts.opacity : 1
+    transparent: true, opacity: op, depthTest: false, depthWrite: false
   }));
 }
 
 function buildDot(pos, size, pressure, color, opacity) {
   const pf = pressureEnabled ? MIN_PRESSURE_WIDTH+(1-MIN_PRESSURE_WIDTH)*pressure : 1;
   const geo = new THREE.CircleGeometry((size*pf)/2, 16);
-  const transparent = opacity !== undefined && opacity < 1;
-  const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(color), transparent, opacity: opacity||1 });
+  const op = opacity !== undefined ? opacity : 1;
+  const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(color), transparent: true, opacity: op, depthTest: false, depthWrite: false });
   const m = new THREE.Mesh(geo, mat); m.position.copy(pos); return m;
 }
 
@@ -361,11 +379,64 @@ function buildLassoFill(points, color, opacity) {
   for (let i=1;i<points.length;i++) shape.lineTo(points[i].x, points[i].y);
   shape.closePath();
   const geo = new THREE.ShapeGeometry(shape);
-  const transparent = opacity !== undefined && opacity < 1;
+  const op = opacity !== undefined ? opacity : 1;
   return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
     color: new THREE.Color(color), side: THREE.DoubleSide,
-    transparent: transparent || false, opacity: opacity !== undefined ? opacity : 1
+    transparent: true, opacity: op, depthTest: false, depthWrite: false
   }));
+}
+
+function buildRadialFill(points, color, maxOpacity) {
+  if (points.length < 3) return null;
+  // Compute centroid and radius
+  let cx=0, cy=0;
+  for (const p of points) { cx+=p.x; cy+=p.y; }
+  cx /= points.length; cy /= points.length;
+  let radius = 0;
+  for (const p of points) { const d = Math.sqrt((p.x-cx)**2 + (p.y-cy)**2); if (d>radius) radius=d; }
+  if (radius === 0) radius = 1;
+
+  const shape = new THREE.Shape();
+  shape.moveTo(points[0].x, points[0].y);
+  for (let i=1;i<points.length;i++) shape.lineTo(points[i].x, points[i].y);
+  shape.closePath();
+  const geo = new THREE.ShapeGeometry(shape);
+
+  const col = new THREE.Color(color);
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      uCenter: { value: new THREE.Vector2(cx, cy) },
+      uRadius: { value: radius },
+      uColor: { value: new THREE.Vector3(col.r, col.g, col.b) },
+      uMaxOpacity: { value: maxOpacity !== undefined ? maxOpacity : 0.45 }
+    },
+    vertexShader: `
+      varying vec2 vPos;
+      void main() {
+        vPos = position.xy;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform vec2 uCenter;
+      uniform float uRadius;
+      uniform vec3 uColor;
+      uniform float uMaxOpacity;
+      varying vec2 vPos;
+      void main() {
+        float dist = distance(vPos, uCenter);
+        float t = clamp(dist / uRadius, 0.0, 1.0);
+        float alpha = uMaxOpacity * (1.0 - t * t);
+        gl_FragColor = vec4(uColor, alpha);
+      }
+    `,
+    transparent: true,
+    side: THREE.DoubleSide,
+    depthTest: false,
+    depthWrite: false
+  });
+
+  return new THREE.Mesh(geo, mat);
 }
 
 // ─── LIVE PREVIEW ───
@@ -418,16 +489,21 @@ function eraseAt(worldPos, radius) {
     changed = true;
     if (!eraserUndoSaved) { eraserUndoSaved = true; saveUndoState(); }
     scene.remove(s.mesh); s.mesh.geometry?.dispose(); s.mesh.material?.dispose();
+    strokes.splice(si, 1);
+
+    // Filled shapes (lasso/shade/radial): remove entirely on hit
+    if (s.isLasso || s.isRadial) continue;
+
+    // Pen/brush strokes: split into surviving segments
     const segments = []; let seg = [];
     for (const d of s.strokeData) {
       if (worldPos.distanceTo(d.pos) < radius) { if (seg.length) segments.push(seg); seg = []; }
       else seg.push({ pos: d.pos.clone(), pressure: d.pressure });
     }
     if (seg.length) segments.push(seg);
-    strokes.splice(si, 1);
     for (const sg of segments) {
       const mesh = buildStrokeMesh(sg, s.size, s.color, s.opacity);
-      if (mesh) { scene.add(mesh); strokes.push({ mesh, strokeData: sg, color: s.color, size: s.size, opacity: s.opacity, isLasso: s.isLasso, drawStartAt: s.drawStartAt, createdAt: s.createdAt }); }
+      if (mesh) { applyRenderOrder(mesh); scene.add(mesh); strokes.push({ mesh, strokeData: sg, color: s.color, size: s.size, opacity: s.opacity, isLasso: false, isRadial: false, drawStartAt: s.drawStartAt, createdAt: s.createdAt }); }
     }
   }
   if (changed) updateStatus();
@@ -437,7 +513,7 @@ function eraseAt(worldPos, radius) {
 function saveUndoState() {
   undoStack.push(strokes.map(s => ({
     strokeData: s.strokeData.map(d => ({ pos: d.pos.clone(), pressure: d.pressure })),
-    color: s.color, size: s.size, opacity: s.opacity, isLasso: !!s.isLasso,
+    color: s.color, size: s.size, opacity: s.opacity, isLasso: !!s.isLasso, isRadial: !!s.isRadial,
     drawStartAt: s.drawStartAt||0, createdAt: s.createdAt||0
   })));
   if (undoStack.length > MAX_HISTORY) undoStack.shift();
@@ -448,11 +524,13 @@ function undo() {
   if (!undoStack.length) return;
   strokes.forEach(s => { scene.remove(s.mesh); s.mesh.geometry?.dispose(); s.mesh.material?.dispose(); });
   strokes = [];
+  renderOrderCounter = 0;
   for (const d of undoStack.pop()) {
     let mesh;
-    if (d.isLasso) mesh = buildLassoFill(d.strokeData.map(dd=>dd.pos), d.color, d.opacity);
+    if (d.isRadial) mesh = buildRadialFill(d.strokeData.map(dd=>dd.pos), d.color, d.opacity);
+    else if (d.isLasso) mesh = buildLassoFill(d.strokeData.map(dd=>dd.pos), d.color, d.opacity);
     else mesh = buildStrokeMesh(d.strokeData, d.size, d.color, d.opacity);
-    if (mesh) { scene.add(mesh); strokes.push({ mesh, strokeData: d.strokeData, color: d.color, size: d.size, opacity: d.opacity, isLasso: d.isLasso, drawStartAt: d.drawStartAt, createdAt: d.createdAt }); }
+    if (mesh) { applyRenderOrder(mesh); scene.add(mesh); strokes.push({ mesh, strokeData: d.strokeData, color: d.color, size: d.size, opacity: d.opacity, isLasso: d.isLasso, isRadial: d.isRadial, drawStartAt: d.drawStartAt, createdAt: d.createdAt }); }
   }
   updateStatus();
 }
@@ -482,26 +560,31 @@ function addSample(e) {
 }
 
 // ─── COMMIT HELPERS ───
-function commitStroke(strokeData, color, size, opacity, isLasso) {
+let renderOrderCounter = 0;
+
+function applyRenderOrder(mesh) {
+  mesh.renderOrder = renderOrderCounter++;
+}
+
+function commitStroke(strokeData, color, size, opacity, isLasso, isRadial) {
   const now = Date.now();
   let mesh;
-  if (isLasso) mesh = buildLassoFill(strokeData.map(d=>d.pos), color, opacity);
+  if (isRadial) mesh = buildRadialFill(strokeData.map(d=>d.pos), color, opacity);
+  else if (isLasso) mesh = buildLassoFill(strokeData.map(d=>d.pos), color, opacity);
   else mesh = buildStrokeMesh(strokeData, size, color, opacity);
   if (!mesh) return;
+  applyRenderOrder(mesh);
   scene.add(mesh);
-  strokes.push({ mesh, strokeData, color, size, opacity, isLasso: !!isLasso, drawStartAt: currentStrokeStart, createdAt: now });
+  strokes.push({ mesh, strokeData, color, size, opacity, isLasso: !!isLasso, isRadial: !!isRadial, drawStartAt: currentStrokeStart, createdAt: now });
 
   if (symmetryEnabled) {
     let mirrorData, mirrorMesh;
-    if (isLasso) {
-      const mirPts = mirrorPoints(strokeData.map(d=>d.pos));
-      mirrorData = mirPts.map(p => ({ pos: p, pressure: 0.5 }));
-      mirrorMesh = buildLassoFill(mirPts, color, opacity);
-    } else {
-      mirrorData = mirrorStrokeData(strokeData);
-      mirrorMesh = buildStrokeMesh(mirrorData, size, color, opacity);
-    }
-    if (mirrorMesh) { scene.add(mirrorMesh); strokes.push({ mesh: mirrorMesh, strokeData: mirrorData, color, size, opacity, isLasso: !!isLasso, drawStartAt: currentStrokeStart, createdAt: now }); }
+    const mirPts = mirrorPoints(strokeData.map(d=>d.pos));
+    mirrorData = mirPts.map(p => ({ pos: p, pressure: 0.5 }));
+    if (isRadial) mirrorMesh = buildRadialFill(mirPts, color, opacity);
+    else if (isLasso) mirrorMesh = buildLassoFill(mirPts, color, opacity);
+    else { mirrorData = mirrorStrokeData(strokeData); mirrorMesh = buildStrokeMesh(mirrorData, size, color, opacity); }
+    if (mirrorMesh) { applyRenderOrder(mirrorMesh); scene.add(mirrorMesh); strokes.push({ mesh: mirrorMesh, strokeData: mirrorData, color, size, opacity, isLasso: !!isLasso, isRadial: !!isRadial, drawStartAt: currentStrokeStart, createdAt: now }); }
   }
 }
 
@@ -516,7 +599,7 @@ renderer.domElement.addEventListener('pointerdown', e => {
   const pos = getWorldPos(e);
 
   if (currentTool === 'eraser') { eraserUndoSaved = false; eraseAt(pos, eraserSize); return; }
-  if (currentTool === 'lasso' || currentTool === 'gradient') { lassoPoints = [pos]; renderer.domElement.setPointerCapture(e.pointerId); return; }
+  if (currentTool === 'lasso' || currentTool === 'gradient' || currentTool === 'radial') { lassoPoints = [pos]; renderer.domElement.setPointerCapture(e.pointerId); return; }
 
   // pen or brush
   saveUndoState();
@@ -530,9 +613,9 @@ renderer.domElement.addEventListener('pointermove', e => {
   if (!isDrawing) return;
 
   if (currentTool === 'eraser') { eraseAt(getWorldPos(e), eraserSize); return; }
-  if (currentTool === 'lasso' || currentTool === 'gradient') {
+  if (currentTool === 'lasso' || currentTool === 'gradient' || currentTool === 'radial') {
     const pos = getWorldPos(e), last = lassoPoints[lassoPoints.length-1];
-    if (pos.distanceTo(last) >= 3) { lassoPoints.push(pos); updateLassoPreview(currentTool==='gradient'); }
+    if (pos.distanceTo(last) >= 3) { lassoPoints.push(pos); updateLassoPreview(currentTool==='gradient'||currentTool==='radial'); }
     return;
   }
 
@@ -550,12 +633,12 @@ renderer.domElement.addEventListener('pointerup', e => {
 
   clearPreviews();
 
-  if (currentTool === 'lasso' || currentTool === 'gradient') {
+  if (currentTool === 'lasso' || currentTool === 'gradient' || currentTool === 'radial') {
     if (lassoPoints.length >= 3) {
       saveUndoState();
-      const opacity = currentTool === 'gradient' ? 0.3 : 1;
+      const opacity = currentTool === 'gradient' ? 0.3 : currentTool === 'radial' ? 0.45 : 1;
       const data = lassoPoints.map(p => ({ pos: p.clone(), pressure: 0.5 }));
-      commitStroke(data, currentColor, 0, opacity, true);
+      commitStroke(data, currentColor, 0, opacity, true, currentTool === 'radial');
     }
     lassoPoints = [];
     updateStatus(); return;
@@ -581,6 +664,7 @@ window.addEventListener('keydown', e => {
   if (e.key==='e') setTool('eraser');
   if (e.key==='l') setTool('lasso');
   if (e.key==='g') setTool('gradient');
+  if (e.key==='r') setTool('radial');
   if (e.key==='`'||e.key==='~') setTool(currentTool==='eraser'?'pen':'eraser');
   if (e.key==='t') togglePressure();
   if (e.key==='s'&&!e.ctrlKey&&!e.metaKey) toggleSmoothing();
@@ -638,7 +722,7 @@ function syncSizeUI() {
 
 function setTool(tool) {
   currentTool = tool;
-  ['pen','brush','eraser','lasso','gradient'].forEach(t => document.getElementById('btn-'+t).classList.toggle('active', t===tool));
+  ['pen','brush','eraser','lasso','gradient','radial'].forEach(t => document.getElementById('btn-'+t).classList.toggle('active', t===tool));
   renderer.domElement.style.cursor = tool==='eraser'?'none':'crosshair';
   eraserCursorEl.style.display = tool==='eraser'?'block':'none';
   syncSizeUI();
@@ -653,6 +737,7 @@ document.getElementById('btn-brush').addEventListener('click', () => setTool('br
 document.getElementById('btn-eraser').addEventListener('click', () => setTool('eraser'));
 document.getElementById('btn-lasso').addEventListener('click', () => setTool('lasso'));
 document.getElementById('btn-gradient').addEventListener('click', () => setTool('gradient'));
+document.getElementById('btn-radial').addEventListener('click', () => setTool('radial'));
 document.getElementById('btn-undo').addEventListener('click', undo);
 document.getElementById('btn-pressure').addEventListener('click', togglePressure);
 document.getElementById('btn-stabilize').addEventListener('click', toggleSmoothing);
@@ -662,7 +747,6 @@ document.getElementById('btn-symmetry').addEventListener('click', toggleSymmetry
 document.getElementById('btn-clear').addEventListener('click', () => {
   if (!strokes.length && !scene.children.length) return;
   saveUndoState();
-  // Remove ALL objects from scene
   while (scene.children.length > 0) {
     const c = scene.children[0];
     scene.remove(c);
@@ -670,6 +754,7 @@ document.getElementById('btn-clear').addEventListener('click', () => {
     c.material?.dispose();
   }
   strokes = [];
+  renderOrderCounter = 0;
   clearPreviews();
   updateStatus();
 });
@@ -751,7 +836,7 @@ async function exportTimelapse() {
 
   const strokeList = strokes.map(s => ({
     strokeData: s.strokeData, color: s.color, size: s.size, opacity: s.opacity,
-    isLasso: !!s.isLasso, drawStartAt: s.drawStartAt||0, createdAt: s.createdAt||0
+    isLasso: !!s.isLasso, isRadial: !!s.isRadial, drawStartAt: s.drawStartAt||0, createdAt: s.createdAt||0
   }));
   strokeList.sort((a,b) => a.createdAt - b.createdAt);
 
@@ -783,6 +868,7 @@ async function exportTimelapse() {
 
   // Build export meshes (separate from scene meshes)
   const exportMeshes = timeline.map(ts => {
+    if (ts.isRadial) return buildRadialFill(ts.strokeData.map(d=>d.pos), ts.color, ts.opacity);
     if (ts.isLasso) return buildLassoFill(ts.strokeData.map(d=>d.pos), ts.color, ts.opacity);
     return buildStrokeMesh(ts.strokeData, ts.size, ts.color, ts.opacity);
   });
@@ -807,7 +893,19 @@ async function exportTimelapse() {
   // Try WebCodecs + mp4-muxer first, fallback to MediaRecorder
   if (typeof VideoEncoder !== 'undefined') {
     try {
-      const { Muxer, ArrayBufferTarget } = await import('https://cdn.jsdelivr.net/npm/mp4-muxer@5/build/mp4-muxer.mjs');
+      // Try multiple CDN sources for mp4-muxer
+      let mp4Module;
+      const cdnUrls = [
+        'https://cdn.jsdelivr.net/npm/mp4-muxer@5/build/mp4-muxer.mjs',
+        'https://unpkg.com/mp4-muxer@5/build/mp4-muxer.mjs',
+        'https://cdn.jsdelivr.net/npm/mp4-muxer/build/mp4-muxer.mjs'
+      ];
+      for (const url of cdnUrls) {
+        try { mp4Module = await import(url); break; } catch(_) { continue; }
+      }
+      if (!mp4Module) throw new Error('Could not load mp4-muxer from any CDN');
+
+      const { Muxer, ArrayBufferTarget } = mp4Module;
       const target = new ArrayBufferTarget();
       const muxer = new Muxer({ target, video: { codec: 'avc', width: exW, height: exH }, fastStart: 'in-memory' });
       const encoder = new VideoEncoder({
@@ -830,8 +928,9 @@ async function exportTimelapse() {
             const prog=(t-ts.pStart)/(ts.pEnd-ts.pStart);
             const cnt=Math.max(2, Math.floor(ts.strokeData.length*prog));
             const partial=ts.strokeData.slice(0, cnt);
-            if (ts.isLasso && partial.length>=3) partialMesh=buildLassoFill(partial.map(d=>d.pos), ts.color, ts.opacity);
-            else if (!ts.isLasso) partialMesh=buildStrokeMesh(partial, ts.size, ts.color, ts.opacity);
+            if (ts.isRadial && partial.length>=3) partialMesh=buildRadialFill(partial.map(d=>d.pos), ts.color, ts.opacity);
+            else if (ts.isLasso && partial.length>=3) partialMesh=buildLassoFill(partial.map(d=>d.pos), ts.color, ts.opacity);
+            else if (!ts.isLasso && !ts.isRadial) partialMesh=buildStrokeMesh(partial, ts.size, ts.color, ts.opacity);
             if (partialMesh) scene.add(partialMesh);
           } else { m.visible=false; }
         }
@@ -852,18 +951,26 @@ async function exportTimelapse() {
       const a = document.createElement('a'); a.href=url; a.download='nib-timelapse.mp4'; a.click();
       URL.revokeObjectURL(url);
       success = true;
-    } catch(err) { console.warn('WebCodecs failed, trying MediaRecorder:', err); }
+    } catch(err) { console.warn('WebCodecs failed:', err); }
   }
 
-  // Fallback: MediaRecorder
+  // Fallback 2: MediaRecorder with MP4 (Chrome/Edge 116+)
+  // Fallback 3: MediaRecorder with WebM (last resort)
   if (!success) {
     try {
-      let mime = 'video/webm;codecs=vp9';
-      if (typeof MediaRecorder!=='undefined') {
-        if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) mime='video/webm;codecs=vp9';
-        else if (MediaRecorder.isTypeSupported('video/webm;codecs=vp8')) mime='video/webm;codecs=vp8';
-        else mime='video/webm';
+      // Prefer MP4, then WebM
+      let mime, fileExt;
+      const mp4Types = ['video/mp4;codecs=avc1', 'video/mp4;codecs="avc1.42E01E"', 'video/mp4'];
+      const webmTypes = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+      const allTypes = [...mp4Types, ...webmTypes];
+
+      for (const t of allTypes) {
+        if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t)) { mime = t; break; }
       }
+      if (!mime) mime = 'video/webm';
+      fileExt = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
+      console.log('MediaRecorder using:', mime);
+
       const stream = renderer.domElement.captureStream(30);
       const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 2_000_000 });
       const chunks = [];
@@ -883,8 +990,9 @@ async function exportTimelapse() {
               m.visible=false;
               const prog=(t-ts.pStart)/(ts.pEnd-ts.pStart), cnt=Math.max(2,Math.floor(ts.strokeData.length*prog));
               const partial=ts.strokeData.slice(0,cnt);
-              if (ts.isLasso&&partial.length>=3) partialMesh=buildLassoFill(partial.map(d=>d.pos),ts.color,ts.opacity);
-              else if(!ts.isLasso) partialMesh=buildStrokeMesh(partial,ts.size,ts.color,ts.opacity);
+              if (ts.isRadial&&partial.length>=3) partialMesh=buildRadialFill(partial.map(d=>d.pos),ts.color,ts.opacity);
+              else if (ts.isLasso&&partial.length>=3) partialMesh=buildLassoFill(partial.map(d=>d.pos),ts.color,ts.opacity);
+              else if(!ts.isLasso&&!ts.isRadial) partialMesh=buildStrokeMesh(partial,ts.size,ts.color,ts.opacity);
               if(partialMesh) scene.add(partialMesh);
             } else m.visible=false;
           }
@@ -898,9 +1006,9 @@ async function exportTimelapse() {
       await done;
       const blob = new Blob(chunks, { type: mime });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href=url; a.download='nib-timelapse.webm'; a.click();
+      const a = document.createElement('a'); a.href=url; a.download=`nib-timelapse.${fileExt}`; a.click();
       URL.revokeObjectURL(url);
-      showToast('Exported as .webm (fallback)');
+      showToast(`Exported as .${fileExt}`);
       success = true;
     } catch(err) { console.error('MediaRecorder also failed:', err); showToast('Export failed'); }
   }
@@ -928,6 +1036,27 @@ function showToast(msg) {
   const el = document.getElementById('toast'); el.textContent = msg;
   el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 2000);
 }
+
+// ─── TOOLBAR RESIZE ───
+let tbScale = 1, tbDragStartY = 0, tbDragStartScale = 1, tbDragging = false;
+const tbEl = document.querySelector('.toolbar');
+const tbHandle = document.getElementById('toolbar-resize');
+
+tbHandle.addEventListener('pointerdown', e => {
+  e.stopPropagation(); e.preventDefault();
+  tbDragging = true;
+  tbDragStartY = e.clientY;
+  tbDragStartScale = tbScale;
+  tbHandle.setPointerCapture(e.pointerId);
+});
+tbHandle.addEventListener('pointermove', e => {
+  if (!tbDragging) return;
+  const dy = e.clientY - tbDragStartY;
+  tbScale = Math.max(0.5, Math.min(2.5, tbDragStartScale + dy * 0.005));
+  tbEl.style.setProperty('--tb-scale', tbScale);
+});
+tbHandle.addEventListener('pointerup', () => { tbDragging = false; });
+tbHandle.addEventListener('pointercancel', () => { tbDragging = false; });
 
 // ─── RESIZE ───
 window.addEventListener('resize', () => {
