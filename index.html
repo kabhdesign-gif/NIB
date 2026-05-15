@@ -108,6 +108,22 @@
   }
   .sym-handle:active { cursor: grabbing; transform: translate(-50%, -50%) scale(1.15); }
 
+  /* ── Reference images ── */
+  .ref-close {
+    position: absolute; width: 20px; height: 20px; border-radius: 50%;
+    background: #000; color: #fff; border: 1.5px solid #fff;
+    font-size: 12px; line-height: 16px; text-align: center;
+    cursor: pointer; z-index: 8; transform: translate(-50%, -50%);
+    pointer-events: auto; box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    display: flex; align-items: center; justify-content: center;
+    transition: transform 0.1s;
+  }
+  .ref-close:hover { transform: translate(-50%, -50%) scale(1.2); }
+  .ref-border {
+    position: absolute; border: 1.5px dashed rgba(0,0,0,0.35);
+    pointer-events: none; z-index: 7; display: none;
+  }
+
   /* ── Export overlay ── */
   #export-overlay {
     display: none; position: absolute; inset: 0; z-index: 50;
@@ -222,6 +238,11 @@ let undoStack = [];
 let previewMesh = null, mirrorPreviewMesh = null, lassoPreviewLine = null;
 let penDetected = false, eraserUndoSaved = false, isExporting = false;
 let timelineEpoch = 0, currentStrokeStart = 0;
+
+// Reference images
+let refImages = []; // { mesh, closeBtn, borderEl, blobUrl }
+let draggingRef = null, dragRefOffset = null;
+const REF_BASE_RENDER_ORDER = 100000; // always above strokes
 
 // Symmetry
 let symmetryEnabled = false;
@@ -588,15 +609,151 @@ function commitStroke(strokeData, color, size, opacity, isLasso, isRadial) {
   }
 }
 
+// ─── REFERENCE IMAGES ───
+function addRefImage(blobUrl) {
+  const img = new Image();
+  img.onload = () => {
+    // Scale to fit ~40% of viewport
+    const maxDim = Math.min(window.innerWidth, window.innerHeight) * 0.4;
+    const scale = maxDim / Math.max(img.width, img.height);
+    const w = img.width * scale, h = img.height * scale;
+
+    const texture = new THREE.Texture(img);
+    texture.needsUpdate = true;
+    const geo = new THREE.PlaneGeometry(w, h);
+    const mat = new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.renderOrder = REF_BASE_RENDER_ORDER + refImages.length;
+    mesh.userData.refWidth = w;
+    mesh.userData.refHeight = h;
+    scene.add(mesh);
+
+    // Close button (HTML overlay)
+    const closeBtn = document.createElement('div');
+    closeBtn.className = 'ref-close';
+    closeBtn.innerHTML = '×';
+    document.body.appendChild(closeBtn);
+
+    // Border indicator
+    const borderEl = document.createElement('div');
+    borderEl.className = 'ref-border';
+    document.body.appendChild(borderEl);
+
+    const ref = { mesh, closeBtn, borderEl, blobUrl, texture };
+    refImages.push(ref);
+    updateRefOverlays();
+
+    closeBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      removeRefImage(ref);
+    });
+
+    showToast('Image pasted — drag to move, scroll to resize');
+  };
+  img.src = blobUrl;
+}
+
+function removeRefImage(ref) {
+  scene.remove(ref.mesh);
+  ref.mesh.geometry.dispose();
+  ref.mesh.material.dispose();
+  ref.texture.dispose();
+  ref.closeBtn.remove();
+  ref.borderEl.remove();
+  URL.revokeObjectURL(ref.blobUrl);
+  refImages = refImages.filter(r => r !== ref);
+}
+
+function updateRefOverlays() {
+  for (const ref of refImages) {
+    const mesh = ref.mesh;
+    const hw = mesh.userData.refWidth * mesh.scale.x / 2;
+    const hh = mesh.userData.refHeight * mesh.scale.y / 2;
+
+    // Top-right corner for close button
+    const tr = worldToScreen(new THREE.Vector3(mesh.position.x + hw, mesh.position.y + hh, 0));
+    ref.closeBtn.style.left = tr.x + 'px';
+    ref.closeBtn.style.top = tr.y + 'px';
+
+    // Border
+    const tl = worldToScreen(new THREE.Vector3(mesh.position.x - hw, mesh.position.y + hh, 0));
+    const br = worldToScreen(new THREE.Vector3(mesh.position.x + hw, mesh.position.y - hh, 0));
+    const isActive = draggingRef === ref;
+    ref.borderEl.style.display = isActive ? 'block' : 'none';
+    ref.borderEl.style.left = tl.x + 'px';
+    ref.borderEl.style.top = tl.y + 'px';
+    ref.borderEl.style.width = (br.x - tl.x) + 'px';
+    ref.borderEl.style.height = (br.y - tl.y) + 'px';
+  }
+}
+
+function hitTestRef(worldPos) {
+  // Check refs in reverse order (topmost first)
+  for (let i = refImages.length - 1; i >= 0; i--) {
+    const ref = refImages[i];
+    const m = ref.mesh;
+    const hw = m.userData.refWidth * m.scale.x / 2;
+    const hh = m.userData.refHeight * m.scale.y / 2;
+    if (worldPos.x >= m.position.x - hw && worldPos.x <= m.position.x + hw &&
+        worldPos.y >= m.position.y - hh && worldPos.y <= m.position.y + hh) {
+      return ref;
+    }
+  }
+  return null;
+}
+
+// Paste listener
+document.addEventListener('paste', e => {
+  if (isExporting) return;
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      e.preventDefault();
+      const file = item.getAsFile();
+      if (file) addRefImage(URL.createObjectURL(file));
+      return;
+    }
+  }
+});
+
+// Scroll to resize ref images
+renderer.domElement.addEventListener('wheel', e => {
+  const pos = getWorldPos(e);
+  const ref = hitTestRef(pos);
+  if (ref) {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.92 : 1.08;
+    const newScale = Math.max(0.1, Math.min(5, ref.mesh.scale.x * delta));
+    ref.mesh.scale.set(newScale, newScale, 1);
+    updateRefOverlays();
+  }
+}, { passive: false });
+
+function hideRefs() { refImages.forEach(r => { r.mesh.visible = false; r.closeBtn.style.display = 'none'; r.borderEl.style.display = 'none'; }); }
+function showRefs() { refImages.forEach(r => { r.mesh.visible = true; r.closeBtn.style.display = 'flex'; }); updateRefOverlays(); }
+
 // ─── POINTER EVENTS ───
 renderer.domElement.addEventListener('pointerdown', e => {
   if (e.button !== 0 || isExporting) return;
   if (penDetected && e.pointerType === 'touch') return;
-  isDrawing = true;
   updatePenInfo(e); updateEraserCursor(e);
+  const pos = getWorldPos(e);
+
+  // Check for ref image hit first
+  const hitRef = hitTestRef(pos);
+  if (hitRef && currentTool !== 'eraser') {
+    draggingRef = hitRef;
+    dragRefOffset = new THREE.Vector3().subVectors(hitRef.mesh.position, pos);
+    renderer.domElement.setPointerCapture(e.pointerId);
+    renderer.domElement.style.cursor = 'move';
+    hitRef.borderEl.style.display = 'block';
+    return;
+  }
+
+  isDrawing = true;
   currentStrokeStart = Date.now();
   if (!timelineEpoch) timelineEpoch = currentStrokeStart;
-  const pos = getWorldPos(e);
 
   if (currentTool === 'eraser') { eraserUndoSaved = false; eraseAt(pos, eraserSize); return; }
   if (currentTool === 'lasso' || currentTool === 'gradient' || currentTool === 'radial') { lassoPoints = [pos]; renderer.domElement.setPointerCapture(e.pointerId); return; }
@@ -610,6 +767,15 @@ renderer.domElement.addEventListener('pointerdown', e => {
 renderer.domElement.addEventListener('pointermove', e => {
   updatePenInfo(e); updateEraserCursor(e);
   if (penDetected && e.pointerType === 'touch') return;
+
+  // Dragging ref image
+  if (draggingRef) {
+    const pos = getWorldPos(e);
+    draggingRef.mesh.position.set(pos.x + dragRefOffset.x, pos.y + dragRefOffset.y, 0);
+    updateRefOverlays();
+    return;
+  }
+
   if (!isDrawing) return;
 
   if (currentTool === 'eraser') { eraseAt(getWorldPos(e), eraserSize); return; }
@@ -625,6 +791,15 @@ renderer.domElement.addEventListener('pointermove', e => {
 });
 
 renderer.domElement.addEventListener('pointerup', e => {
+  // End ref image drag
+  if (draggingRef) {
+    draggingRef.borderEl.style.display = 'none';
+    draggingRef = null;
+    dragRefOffset = null;
+    renderer.domElement.style.cursor = currentTool === 'eraser' ? 'none' : 'crosshair';
+    return;
+  }
+
   if (!isDrawing) return;
   if (penDetected && e.pointerType === 'touch') return;
   isDrawing = false; eraserUndoSaved = false;
@@ -745,10 +920,14 @@ document.getElementById('btn-symmetry').addEventListener('click', toggleSymmetry
 
 // ─── CLEAR (nuclear) ───
 document.getElementById('btn-clear').addEventListener('click', () => {
-  if (!strokes.length && !scene.children.length) return;
+  if (!strokes.length) return;
   saveUndoState();
-  while (scene.children.length > 0) {
-    const c = scene.children[0];
+  // Collect ref meshes to preserve
+  const refMeshes = new Set(refImages.map(r => r.mesh));
+  // Remove only non-ref objects
+  for (let i = scene.children.length - 1; i >= 0; i--) {
+    const c = scene.children[i];
+    if (refMeshes.has(c)) continue;
     scene.remove(c);
     c.geometry?.dispose();
     c.material?.dispose();
@@ -761,10 +940,12 @@ document.getElementById('btn-clear').addEventListener('click', () => {
 
 // ─── EXPORT PNG ───
 document.getElementById('btn-png').addEventListener('click', () => {
+  hideRefs();
   renderer.render(scene, camera);
   const a = document.createElement('a');
   a.href = renderer.domElement.toDataURL('image/png');
   a.download = 'nib-sketch.png'; a.click();
+  showRefs();
   showToast('PNG exported');
 });
 
@@ -833,6 +1014,7 @@ async function exportTimelapse() {
   document.querySelector('.toolbar').style.opacity = '0';
   document.querySelector('.toolbar').style.pointerEvents = 'none';
   symOverlay.style.display = 'none'; symHandleA.style.display = 'none'; symHandleB.style.display = 'none';
+  hideRefs();
 
   const strokeList = strokes.map(s => ({
     strokeData: s.strokeData, color: s.color, size: s.size, opacity: s.opacity,
@@ -1023,6 +1205,7 @@ async function exportTimelapse() {
   document.querySelector('.toolbar').style.opacity = '1';
   document.querySelector('.toolbar').style.pointerEvents = 'auto';
   if (symmetryEnabled) updateSymmetryOverlay();
+  showRefs();
   isExporting = false;
   if (success && !document.querySelector('.toast.show')) showToast('Timelapse exported as MP4');
 }
@@ -1065,6 +1248,7 @@ window.addEventListener('resize', () => {
   camera.left=-w/2; camera.right=w/2; camera.top=h/2; camera.bottom=-h/2;
   camera.updateProjectionMatrix();
   updateSymmetryOverlay();
+  updateRefOverlays();
 });
 
 // ─── RENDER ───
