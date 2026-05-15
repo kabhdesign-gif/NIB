@@ -174,7 +174,7 @@
   <div class="sep"></div>
 
   <button id="btn-pressure" class="toggle-on" title="Pressure (T)">Pressure</button>
-  <button id="btn-stabilize" class="toggle-on" title="Smooth (S)">Smooth</button>
+  <button id="btn-stabilize" class="toggle-on" title="Smooth (S) — click to cycle">S1</button>
   <button id="btn-symmetry" title="Mirror (M)">Mirror</button>
 
   <div class="sep"></div>
@@ -230,7 +230,7 @@ let currentColor = PALETTE[0];
 let penSize = 1, brushSize = 6, eraserSize = 20;
 let currentTool = 'pen'; // pen | brush | eraser | lasso | gradient | radial
 let isDrawing = false;
-let pressureEnabled = true, smoothingEnabled = true;
+let pressureEnabled = true, smoothLevel = 1; // 0=off, 1=light, 2=heavy
 let currentStrokeData = [];
 let lassoPoints = [];
 let strokes = [];
@@ -331,9 +331,27 @@ document.addEventListener('pointerup', () => { draggingHandle = null; });
 
 // ─── SMOOTHING ───
 function smoothStrokeData(data) {
-  if (!smoothingEnabled || data.length < 3) return data;
+  if (smoothLevel === 0 || data.length < 3) return data;
   let pts = data.map(d => ({ pos: d.pos.clone(), pressure: d.pressure }));
-  for (let iter = 0; iter < 2; iter++) {
+
+  // S2: aggressively smooth RAW positions before subdivision
+  if (smoothLevel === 2) {
+    for (let pass = 0; pass < 3; pass++) {
+      const W = 7;
+      pts = pts.map((p, i) => {
+        if (i === 0 || i === pts.length - 1) return p; // keep endpoints
+        const s = Math.max(0, i - Math.floor(W/2)), e = Math.min(pts.length, i + Math.ceil(W/2));
+        let sx=0, sy=0, sp=0;
+        for (let j=s; j<e; j++) { sx+=pts[j].pos.x; sy+=pts[j].pos.y; sp+=pts[j].pressure; }
+        const cnt = e-s;
+        return { pos: new THREE.Vector3(sx/cnt, sy/cnt, 0), pressure: sp/cnt };
+      });
+    }
+  }
+
+  // Chaikin subdivision: 2 iterations for S1, 3 for S2
+  const chaikinIter = smoothLevel === 2 ? 3 : 2;
+  for (let iter = 0; iter < chaikinIter; iter++) {
     const next = [pts[0]];
     for (let i = 0; i < pts.length-1; i++) {
       const p0=pts[i], p1=pts[i+1];
@@ -344,9 +362,24 @@ function smoothStrokeData(data) {
     }
     next.push(pts[pts.length-1]); pts = next;
   }
-  const W = 5;
+
+  // S2: smooth positions again after subdivision
+  if (smoothLevel === 2) {
+    const W = 11;
+    pts = pts.map((p, i) => {
+      if (i === 0 || i === pts.length - 1) return p;
+      const s = Math.max(0, i - Math.floor(W/2)), e = Math.min(pts.length, i + Math.ceil(W/2));
+      let sx=0, sy=0;
+      for (let j=s; j<e; j++) { sx+=pts[j].pos.x; sy+=pts[j].pos.y; }
+      const cnt = e-s;
+      return { pos: new THREE.Vector3(sx/cnt, sy/cnt, 0), pressure: p.pressure };
+    });
+  }
+
+  // Pressure smoothing
+  const PW = smoothLevel === 2 ? 9 : 5;
   return pts.map((p,i) => {
-    const s = Math.max(0, i-Math.floor(W/2)), e = Math.min(pts.length, i+Math.ceil(W/2));
+    const s = Math.max(0, i-Math.floor(PW/2)), e = Math.min(pts.length, i+Math.ceil(PW/2));
     let sum=0; for (let j=s;j<e;j++) sum+=pts[j].pressure;
     return { pos: p.pos, pressure: sum/(e-s) };
   });
@@ -904,7 +937,13 @@ function setTool(tool) {
 }
 
 function togglePressure() { pressureEnabled=!pressureEnabled; document.getElementById('btn-pressure').classList.toggle('toggle-on', pressureEnabled); showToast(pressureEnabled?'Pressure ON':'Pressure OFF'); }
-function toggleSmoothing() { smoothingEnabled=!smoothingEnabled; document.getElementById('btn-stabilize').classList.toggle('toggle-on', smoothingEnabled); showToast(smoothingEnabled?'Smoothing ON':'Smoothing OFF'); }
+function toggleSmoothing() {
+  smoothLevel = (smoothLevel + 1) % 3;
+  const btn = document.getElementById('btn-stabilize');
+  btn.classList.toggle('toggle-on', smoothLevel > 0);
+  btn.textContent = smoothLevel === 0 ? 'S·off' : smoothLevel === 1 ? 'S1' : 'S2';
+  showToast(smoothLevel === 0 ? 'Smoothing OFF' : `Smoothing level ${smoothLevel}`);
+}
 function toggleSymmetry() { symmetryEnabled=!symmetryEnabled; document.getElementById('btn-symmetry').classList.toggle('toggle-on', symmetryEnabled); updateSymmetryOverlay(); showToast(symmetryEnabled?'Mirror ON':'Mirror OFF'); }
 
 document.getElementById('btn-pen').addEventListener('click', () => setTool('pen'));
