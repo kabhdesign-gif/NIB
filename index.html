@@ -135,6 +135,44 @@
   #export-overlay .bar-track { width: 260px; height: 4px; background: #444; border-radius: 2px; overflow: hidden; }
   #export-overlay .bar-fill { height: 100%; width: 0%; background: #fff; border-radius: 2px; transition: width 0.1s; }
 
+  /* ── Info overlay ── */
+  #info-overlay {
+    display: none; position: absolute; inset: 0; z-index: 50;
+    background: rgba(0,0,0,0.6); align-items: center; justify-content: center;
+  }
+  .info-box {
+    background: #fff; border: 1px solid #000; border-radius: 8px;
+    padding: 24px 28px; max-width: 420px; width: 90vw; position: relative;
+    font-size: 11px; line-height: 1.7; color: #333; max-height: 80vh; overflow-y: auto;
+  }
+  .info-box h2 { font-size: 14px; margin: 0 0 12px; color: #000; font-weight: 600; }
+  .info-box h3 { font-size: 11px; margin: 14px 0 6px; color: #000; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .info-box .row { display: flex; justify-content: space-between; padding: 2px 0; }
+  .info-box .key { background: #f0f0f0; border: 1px solid #ddd; border-radius: 3px; padding: 0 5px; font-size: 10px; font-family: inherit; }
+  .info-close {
+    position: absolute; top: 10px; right: 12px; background: none; border: none;
+    font-size: 18px; cursor: pointer; color: #999; line-height: 1;
+  }
+  .info-close:hover { color: #000; }
+
+  /* ── Watermark ── */
+  .watermark {
+    position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+    z-index: 2; font-size: 9px; color: #ccc; letter-spacing: 1px;
+    font-family: 'IBM Plex Mono', monospace; pointer-events: none;
+  }
+
+  /* ── Info button ── */
+  .info-btn {
+    position: absolute; top: 12px; right: 12px; z-index: 10;
+    width: 24px; height: 24px; border-radius: 50%;
+    background: #fff; border: 1px solid #000; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+    font-weight: 600; color: #000; transition: all 0.12s;
+  }
+  .info-btn:hover { background: #000; color: #fff; }
+
   svg { display: inline; vertical-align: middle; }
 </style>
 </head>
@@ -211,6 +249,40 @@
   <div class="bar-track"><div class="bar-fill" id="export-progress"></div></div>
   <div class="ex-detail" id="export-detail"></div>
 </div>
+
+<div class="info-btn" id="info-btn" title="Shortcuts & Info (I)">?</div>
+
+<div id="info-overlay">
+  <div class="info-box">
+    <button class="info-close" id="info-close">×</button>
+    <h2>NIB — Sketch Tool</h2>
+    <h3>Tools</h3>
+    <div class="row"><span>Pen (fine 1-5px)</span><span class="key">P</span></div>
+    <div class="row"><span>Brush (paint 1-20px)</span><span class="key">B</span></div>
+    <div class="row"><span>Eraser (partial)</span><span class="key">E</span> <span class="key">~</span></div>
+    <div class="row"><span>Lasso (solid fill)</span><span class="key">L</span></div>
+    <div class="row"><span>Shade (30% fill)</span><span class="key">G</span></div>
+    <div class="row"><span>Glow (radial gradient)</span><span class="key">R</span></div>
+    <h3>Modifiers</h3>
+    <div class="row"><span>Pressure sensitivity</span><span class="key">T</span></div>
+    <div class="row"><span>Smoothing (off/S1/S2/S3)</span><span class="key">S</span></div>
+    <div class="row"><span>Symmetry mirror</span><span class="key">M</span></div>
+    <h3>Actions</h3>
+    <div class="row"><span>Undo (15 levels)</span><span class="key">Ctrl+Z</span></div>
+    <div class="row"><span>Brush size ±</span><span class="key">[</span> <span class="key">]</span></div>
+    <div class="row"><span>Hide / show UI</span><span class="key">H</span></div>
+    <div class="row"><span>Paste reference image</span><span class="key">Ctrl+V</span></div>
+    <div class="row"><span>Resize ref image</span><span>Scroll wheel</span></div>
+    <h3>Export</h3>
+    <div class="row"><span>PNG screenshot</span><span>PNG button</span></div>
+    <div class="row"><span>3D geometry</span><span>glTF button</span></div>
+    <div class="row"><span>Timelapse video (H.264 MP4)</span><span>TM button</span></div>
+    <h3>Features</h3>
+    <div style="color:#666;">Wacom pressure & tilt support · palm rejection · live stroke preview · partial eraser with stroke splitting · per-stroke smoothing preservation · symmetry on all tools · reference image layer (Ctrl+V) · idle-gap compression in timelapse · resizable toolbar</div>
+  </div>
+</div>
+
+<div class="watermark">Made with NIB</div>
 <div id="canvas-container"></div>
 
 <script type="importmap">
@@ -334,12 +406,13 @@ function smoothStrokeData(data) {
   if (smoothLevel === 0 || data.length < 3) return data;
   let pts = data.map(d => ({ pos: d.pos.clone(), pressure: d.pressure }));
 
-  // S2: aggressively smooth RAW positions before subdivision
-  if (smoothLevel === 2) {
-    for (let pass = 0; pass < 3; pass++) {
-      const W = 7;
+  // Pre-smooth raw positions for S2/S3
+  if (smoothLevel >= 2) {
+    const passes = smoothLevel === 3 ? 6 : 3;
+    const W = smoothLevel === 3 ? 11 : 7;
+    for (let pass = 0; pass < passes; pass++) {
       pts = pts.map((p, i) => {
-        if (i === 0 || i === pts.length - 1) return p; // keep endpoints
+        if (i === 0 || i === pts.length - 1) return p;
         const s = Math.max(0, i - Math.floor(W/2)), e = Math.min(pts.length, i + Math.ceil(W/2));
         let sx=0, sy=0, sp=0;
         for (let j=s; j<e; j++) { sx+=pts[j].pos.x; sy+=pts[j].pos.y; sp+=pts[j].pressure; }
@@ -349,8 +422,8 @@ function smoothStrokeData(data) {
     }
   }
 
-  // Chaikin subdivision: 2 iterations for S1, 3 for S2
-  const chaikinIter = smoothLevel === 2 ? 3 : 2;
+  // Chaikin subdivision
+  const chaikinIter = smoothLevel === 1 ? 2 : smoothLevel === 2 ? 3 : 4;
   for (let iter = 0; iter < chaikinIter; iter++) {
     const next = [pts[0]];
     for (let i = 0; i < pts.length-1; i++) {
@@ -363,9 +436,9 @@ function smoothStrokeData(data) {
     next.push(pts[pts.length-1]); pts = next;
   }
 
-  // S2: smooth positions again after subdivision
-  if (smoothLevel === 2) {
-    const W = 11;
+  // Post-smooth positions for S2/S3
+  if (smoothLevel >= 2) {
+    const W = smoothLevel === 3 ? 17 : 11;
     pts = pts.map((p, i) => {
       if (i === 0 || i === pts.length - 1) return p;
       const s = Math.max(0, i - Math.floor(W/2)), e = Math.min(pts.length, i + Math.ceil(W/2));
@@ -377,7 +450,7 @@ function smoothStrokeData(data) {
   }
 
   // Pressure smoothing
-  const PW = smoothLevel === 2 ? 9 : 5;
+  const PW = smoothLevel >= 2 ? 9 : 5;
   return pts.map((p,i) => {
     const s = Math.max(0, i-Math.floor(PW/2)), e = Math.min(pts.length, i+Math.ceil(PW/2));
     let sum=0; for (let j=s;j<e;j++) sum+=pts[j].pressure;
@@ -534,30 +607,39 @@ function updateLassoPreview(isGradient) {
 
 // ─── PARTIAL ERASER ───
 function eraseAt(worldPos, radius) {
+  // Also erase at mirrored position when symmetry is on
+  const positions = [worldPos];
+  if (symmetryEnabled) positions.push(reflectPoint(worldPos, symA, symB));
+
   let changed = false;
-  for (let si = strokes.length-1; si >= 0; si--) {
-    const s = strokes[si];
-    let hasHit = false;
-    for (const d of s.strokeData) { if (worldPos.distanceTo(d.pos) < radius) { hasHit=true; break; } }
-    if (!hasHit) continue;
-    changed = true;
-    if (!eraserUndoSaved) { eraserUndoSaved = true; saveUndoState(); }
-    scene.remove(s.mesh); s.mesh.geometry?.dispose(); s.mesh.material?.dispose();
-    strokes.splice(si, 1);
+  for (const erasePos of positions) {
+    for (let si = strokes.length-1; si >= 0; si--) {
+      const s = strokes[si];
+      let hasHit = false;
+      for (const d of s.strokeData) { if (erasePos.distanceTo(d.pos) < radius) { hasHit=true; break; } }
+      if (!hasHit) continue;
+      changed = true;
+      if (!eraserUndoSaved) { eraserUndoSaved = true; saveUndoState(); }
+      scene.remove(s.mesh); s.mesh.geometry?.dispose(); s.mesh.material?.dispose();
+      strokes.splice(si, 1);
 
-    // Filled shapes (lasso/shade/radial): remove entirely on hit
-    if (s.isLasso || s.isRadial) continue;
+      // Filled shapes: remove entirely
+      if (s.isLasso || s.isRadial) continue;
 
-    // Pen/brush strokes: split into surviving segments
-    const segments = []; let seg = [];
-    for (const d of s.strokeData) {
-      if (worldPos.distanceTo(d.pos) < radius) { if (seg.length) segments.push(seg); seg = []; }
-      else seg.push({ pos: d.pos.clone(), pressure: d.pressure });
-    }
-    if (seg.length) segments.push(seg);
-    for (const sg of segments) {
-      const mesh = buildStrokeMesh(sg, s.size, s.color, s.opacity);
-      if (mesh) { applyRenderOrder(mesh); scene.add(mesh); strokes.push({ mesh, strokeData: sg, color: s.color, size: s.size, opacity: s.opacity, isLasso: false, isRadial: false, drawStartAt: s.drawStartAt, createdAt: s.createdAt }); }
+      // Pen/brush: split into surviving segments, using original smooth level
+      const savedSmooth = smoothLevel;
+      smoothLevel = s.smooth !== undefined ? s.smooth : savedSmooth;
+      const segments = []; let seg = [];
+      for (const d of s.strokeData) {
+        if (erasePos.distanceTo(d.pos) < radius) { if (seg.length) segments.push(seg); seg = []; }
+        else seg.push({ pos: d.pos.clone(), pressure: d.pressure });
+      }
+      if (seg.length) segments.push(seg);
+      for (const sg of segments) {
+        const mesh = buildStrokeMesh(sg, s.size, s.color, s.opacity);
+        if (mesh) { applyRenderOrder(mesh); scene.add(mesh); strokes.push({ mesh, strokeData: sg, color: s.color, size: s.size, opacity: s.opacity, isLasso: false, isRadial: false, smooth: s.smooth, drawStartAt: s.drawStartAt, createdAt: s.createdAt }); }
+      }
+      smoothLevel = savedSmooth;
     }
   }
   if (changed) updateStatus();
@@ -568,6 +650,7 @@ function saveUndoState() {
   undoStack.push(strokes.map(s => ({
     strokeData: s.strokeData.map(d => ({ pos: d.pos.clone(), pressure: d.pressure })),
     color: s.color, size: s.size, opacity: s.opacity, isLasso: !!s.isLasso, isRadial: !!s.isRadial,
+    smooth: s.smooth !== undefined ? s.smooth : smoothLevel,
     drawStartAt: s.drawStartAt||0, createdAt: s.createdAt||0
   })));
   if (undoStack.length > MAX_HISTORY) undoStack.shift();
@@ -579,13 +662,16 @@ function undo() {
   strokes.forEach(s => { scene.remove(s.mesh); s.mesh.geometry?.dispose(); s.mesh.material?.dispose(); });
   strokes = [];
   renderOrderCounter = 0;
+  const savedSmooth = smoothLevel;
   for (const d of undoStack.pop()) {
+    smoothLevel = d.smooth !== undefined ? d.smooth : savedSmooth;
     let mesh;
     if (d.isRadial) mesh = buildRadialFill(d.strokeData.map(dd=>dd.pos), d.color, d.opacity);
     else if (d.isLasso) mesh = buildLassoFill(d.strokeData.map(dd=>dd.pos), d.color, d.opacity);
     else mesh = buildStrokeMesh(d.strokeData, d.size, d.color, d.opacity);
-    if (mesh) { applyRenderOrder(mesh); scene.add(mesh); strokes.push({ mesh, strokeData: d.strokeData, color: d.color, size: d.size, opacity: d.opacity, isLasso: d.isLasso, isRadial: d.isRadial, drawStartAt: d.drawStartAt, createdAt: d.createdAt }); }
+    if (mesh) { applyRenderOrder(mesh); scene.add(mesh); strokes.push({ mesh, strokeData: d.strokeData, color: d.color, size: d.size, opacity: d.opacity, isLasso: d.isLasso, isRadial: d.isRadial, smooth: d.smooth, drawStartAt: d.drawStartAt, createdAt: d.createdAt }); }
   }
+  smoothLevel = savedSmooth;
   updateStatus();
 }
 
@@ -609,7 +695,7 @@ function updatePenInfo(e) {
 function addSample(e) {
   const pos = getWorldPos(e), pressure = getPressure(e);
   const last = currentStrokeData[currentStrokeData.length-1];
-  if (last && pos.distanceTo(last.pos) < 1.5) return;
+  if (last && pos.distanceTo(last.pos) < 0.5) return;
   currentStrokeData.push({ pos, pressure });
 }
 
@@ -622,6 +708,7 @@ function applyRenderOrder(mesh) {
 
 function commitStroke(strokeData, color, size, opacity, isLasso, isRadial) {
   const now = Date.now();
+  const strokeSmooth = smoothLevel; // capture at draw time
   let mesh;
   if (isRadial) mesh = buildRadialFill(strokeData.map(d=>d.pos), color, opacity);
   else if (isLasso) mesh = buildLassoFill(strokeData.map(d=>d.pos), color, opacity);
@@ -629,7 +716,7 @@ function commitStroke(strokeData, color, size, opacity, isLasso, isRadial) {
   if (!mesh) return;
   applyRenderOrder(mesh);
   scene.add(mesh);
-  strokes.push({ mesh, strokeData, color, size, opacity, isLasso: !!isLasso, isRadial: !!isRadial, drawStartAt: currentStrokeStart, createdAt: now });
+  strokes.push({ mesh, strokeData, color, size, opacity, isLasso: !!isLasso, isRadial: !!isRadial, smooth: strokeSmooth, drawStartAt: currentStrokeStart, createdAt: now });
 
   if (symmetryEnabled) {
     let mirrorData, mirrorMesh;
@@ -638,7 +725,7 @@ function commitStroke(strokeData, color, size, opacity, isLasso, isRadial) {
     if (isRadial) mirrorMesh = buildRadialFill(mirPts, color, opacity);
     else if (isLasso) mirrorMesh = buildLassoFill(mirPts, color, opacity);
     else { mirrorData = mirrorStrokeData(strokeData); mirrorMesh = buildStrokeMesh(mirrorData, size, color, opacity); }
-    if (mirrorMesh) { applyRenderOrder(mirrorMesh); scene.add(mirrorMesh); strokes.push({ mesh: mirrorMesh, strokeData: mirrorData, color, size, opacity, isLasso: !!isLasso, isRadial: !!isRadial, drawStartAt: currentStrokeStart, createdAt: now }); }
+    if (mirrorMesh) { applyRenderOrder(mirrorMesh); scene.add(mirrorMesh); strokes.push({ mesh: mirrorMesh, strokeData: mirrorData, color, size, opacity, isLasso: !!isLasso, isRadial: !!isRadial, smooth: strokeSmooth, drawStartAt: currentStrokeStart, createdAt: now }); }
   }
 }
 
@@ -877,6 +964,8 @@ window.addEventListener('keydown', e => {
   if (e.key==='t') togglePressure();
   if (e.key==='s'&&!e.ctrlKey&&!e.metaKey) toggleSmoothing();
   if (e.key==='m') toggleSymmetry();
+  if (e.key==='h') toggleUI();
+  if (e.key==='i') toggleInfo();
   if (e.key==='[') { adjustSize(-1); }
   if (e.key===']') { adjustSize(1); }
 });
@@ -938,13 +1027,29 @@ function setTool(tool) {
 
 function togglePressure() { pressureEnabled=!pressureEnabled; document.getElementById('btn-pressure').classList.toggle('toggle-on', pressureEnabled); showToast(pressureEnabled?'Pressure ON':'Pressure OFF'); }
 function toggleSmoothing() {
-  smoothLevel = (smoothLevel + 1) % 3;
+  smoothLevel = (smoothLevel + 1) % 4;
   const btn = document.getElementById('btn-stabilize');
   btn.classList.toggle('toggle-on', smoothLevel > 0);
-  btn.textContent = smoothLevel === 0 ? 'S·off' : smoothLevel === 1 ? 'S1' : 'S2';
+  btn.textContent = ['S·off','S1','S2','S3'][smoothLevel];
   showToast(smoothLevel === 0 ? 'Smoothing OFF' : `Smoothing level ${smoothLevel}`);
 }
 function toggleSymmetry() { symmetryEnabled=!symmetryEnabled; document.getElementById('btn-symmetry').classList.toggle('toggle-on', symmetryEnabled); updateSymmetryOverlay(); showToast(symmetryEnabled?'Mirror ON':'Mirror OFF'); }
+
+let uiHidden = false;
+function toggleUI() {
+  uiHidden = !uiHidden;
+  const els = [document.querySelector('.toolbar'), document.getElementById('status'), document.getElementById('pen-info'), document.getElementById('info-btn')];
+  els.forEach(el => { if (el) el.style.display = uiHidden ? 'none' : ''; });
+  if (uiHidden) showToast('UI hidden — press H to show');
+}
+
+function toggleInfo() {
+  const ov = document.getElementById('info-overlay');
+  ov.style.display = ov.style.display === 'flex' ? 'none' : 'flex';
+}
+document.getElementById('info-btn').addEventListener('click', toggleInfo);
+document.getElementById('info-close').addEventListener('click', () => { document.getElementById('info-overlay').style.display = 'none'; });
+document.getElementById('info-overlay').addEventListener('click', e => { if (e.target.id === 'info-overlay') e.target.style.display = 'none'; });
 
 document.getElementById('btn-pen').addEventListener('click', () => setTool('pen'));
 document.getElementById('btn-brush').addEventListener('click', () => setTool('brush'));
@@ -1045,19 +1150,24 @@ document.getElementById('btn-timelapse').addEventListener('click', () => {
 
 async function exportTimelapse() {
   isExporting = true;
+  stopRenderLoop(); // CRITICAL: stop main loop so it doesn't fight with export rendering
+
   const overlay = document.getElementById('export-overlay');
   const progressBar = document.getElementById('export-progress');
   const statusEl = document.getElementById('export-status');
   const detailEl = document.getElementById('export-detail');
   overlay.style.display = 'flex';
+  progressBar.style.width = '0%';
   document.querySelector('.toolbar').style.opacity = '0';
   document.querySelector('.toolbar').style.pointerEvents = 'none';
   symOverlay.style.display = 'none'; symHandleA.style.display = 'none'; symHandleB.style.display = 'none';
   hideRefs();
 
+  // Build stroke timeline
   const strokeList = strokes.map(s => ({
     strokeData: s.strokeData, color: s.color, size: s.size, opacity: s.opacity,
-    isLasso: !!s.isLasso, isRadial: !!s.isRadial, drawStartAt: s.drawStartAt||0, createdAt: s.createdAt||0
+    isLasso: !!s.isLasso, isRadial: !!s.isRadial, smooth: s.smooth !== undefined ? s.smooth : smoothLevel,
+    drawStartAt: s.drawStartAt||0, createdAt: s.createdAt||0
   }));
   strokeList.sort((a,b) => a.createdAt - b.createdAt);
 
@@ -1078,7 +1188,7 @@ async function exportTimelapse() {
   statusEl.textContent = `Exporting (${(playDur/1000).toFixed(1)}s @ ${SPEED}x)`;
   detailEl.textContent = `${totalFrames} frames · ${((rawDur-compDur)/1000).toFixed(0)}s idle cut`;
 
-  // Compute compressed timeline
+  // Compressed timeline
   let accIdle = 0;
   const timeline = strokeList.map((s,i) => {
     if (i>0) { const gap = (s.drawStartAt||s.createdAt) - strokeList[i-1].createdAt; if (gap>IDLE_THRESHOLD) accIdle += gap-GAP_TRANSITION; }
@@ -1087,21 +1197,23 @@ async function exportTimelapse() {
     return { ...s, pStart: ds, pEnd: ds + Math.max(de-ds, 100) };
   });
 
-  // Build export meshes (separate from scene meshes)
-  const exportMeshes = timeline.map(ts => {
-    if (ts.isRadial) return buildRadialFill(ts.strokeData.map(d=>d.pos), ts.color, ts.opacity);
-    if (ts.isLasso) return buildLassoFill(ts.strokeData.map(d=>d.pos), ts.color, ts.opacity);
-    return buildStrokeMesh(ts.strokeData, ts.size, ts.color, ts.opacity);
+  // ── SEPARATE SCENE for export ──
+  const exportScene = new THREE.Scene();
+
+  // Pre-build one mesh per stroke (all hidden initially)
+  const savedSmoothExport = smoothLevel;
+  const exportMeshes = timeline.map((ts, idx) => {
+    smoothLevel = ts.smooth !== undefined ? ts.smooth : savedSmoothExport;
+    let m;
+    if (ts.isRadial) m = buildRadialFill(ts.strokeData.map(d=>d.pos), ts.color, ts.opacity);
+    else if (ts.isLasso) m = buildLassoFill(ts.strokeData.map(d=>d.pos), ts.color, ts.opacity);
+    else m = buildStrokeMesh(ts.strokeData, ts.size, ts.color, ts.opacity);
+    if (m) { m.visible = false; m.renderOrder = idx; exportScene.add(m); }
+    return m;
   });
+  smoothLevel = savedSmoothExport;
 
-  // Hide real strokes
-  const origVis = strokes.map(s => s.mesh.visible);
-  strokes.forEach(s => { s.mesh.visible = false; });
-
-  // Add export meshes (hidden)
-  exportMeshes.forEach(m => { if(m) { m.visible = false; scene.add(m); } });
-
-  // Canvas for even dimensions (H.264 requirement)
+  // Canvas for even dimensions (H.264)
   const cW = renderer.domElement.width, cH = renderer.domElement.height;
   const exW = cW & ~1, exH = cH & ~1;
   const tempCanvas = document.createElement('canvas');
@@ -1111,22 +1223,50 @@ async function exportTimelapse() {
   let partialMesh = null;
   let success = false;
 
-  // Try WebCodecs + mp4-muxer first, fallback to MediaRecorder
+  // Helper: render one frame at time t
+  function renderFrame(t) {
+    if (partialMesh) { exportScene.remove(partialMesh); partialMesh.geometry?.dispose(); partialMesh.material?.dispose(); partialMesh = null; }
+    for (let i = 0; i < timeline.length; i++) {
+      const ts = timeline[i], m = exportMeshes[i];
+      if (!m) continue;
+      if (t >= ts.pEnd) { m.visible = true; }
+      else if (t >= ts.pStart) {
+        // Radial fills: just pop in (progressive radial causes shader artifacts)
+        if (ts.isRadial) { m.visible = true; continue; }
+        m.visible = false;
+        const prog = (t - ts.pStart) / (ts.pEnd - ts.pStart);
+        const cnt = Math.max(2, Math.floor(ts.strokeData.length * prog));
+        const partial = ts.strokeData.slice(0, cnt);
+        if (ts.isLasso && partial.length >= 3) partialMesh = buildLassoFill(partial.map(d=>d.pos), ts.color, ts.opacity);
+        else if (!ts.isLasso) partialMesh = buildStrokeMesh(partial, ts.size, ts.color, ts.opacity);
+        if (partialMesh) { partialMesh.renderOrder = i; exportScene.add(partialMesh); }
+      } else { m.visible = false; }
+    }
+    renderer.setClearColor(0xffffff, 1);
+    renderer.render(exportScene, camera);
+  }
+
+  // Watermark helper for timelapse frames
+  function drawWatermark(ctx, w, h) {
+    ctx.font = '11px "IBM Plex Mono", monospace';
+    ctx.fillStyle = 'rgba(0,0,0,0.15)';
+    ctx.textAlign = 'center';
+    ctx.fillText('Made with NIB', w / 2, h - 14);
+  }
+
+  // ── Try WebCodecs + mp4-muxer ──
   if (typeof VideoEncoder !== 'undefined') {
     try {
-      // Try multiple CDN sources for mp4-muxer
       let mp4Module;
       const cdnUrls = [
         'https://cdn.jsdelivr.net/npm/mp4-muxer@5/build/mp4-muxer.mjs',
         'https://unpkg.com/mp4-muxer@5/build/mp4-muxer.mjs',
         'https://cdn.jsdelivr.net/npm/mp4-muxer/build/mp4-muxer.mjs'
       ];
-      for (const url of cdnUrls) {
-        try { mp4Module = await import(url); break; } catch(_) { continue; }
-      }
-      if (!mp4Module) throw new Error('Could not load mp4-muxer from any CDN');
-
+      for (const url of cdnUrls) { try { mp4Module = await import(url); break; } catch(_) {} }
+      if (!mp4Module) throw new Error('Could not load mp4-muxer');
       const { Muxer, ArrayBufferTarget } = mp4Module;
+
       const target = new ArrayBufferTarget();
       const muxer = new Muxer({ target, video: { codec: 'avc', width: exW, height: exH }, fastStart: 'in-memory' });
       const encoder = new VideoEncoder({
@@ -1139,106 +1279,73 @@ async function exportTimelapse() {
       encoder.configure(config);
 
       for (let frame = 0; frame <= totalFrames; frame++) {
-        const t = (frame/totalFrames) * playDur;
-        if (partialMesh) { scene.remove(partialMesh); partialMesh.geometry?.dispose(); partialMesh.material?.dispose(); partialMesh=null; }
-        for (let i=0; i<timeline.length; i++) {
-          const ts=timeline[i], m=exportMeshes[i]; if(!m) continue;
-          if (t>=ts.pEnd) { m.visible=true; }
-          else if (t>=ts.pStart) {
-            m.visible=false;
-            const prog=(t-ts.pStart)/(ts.pEnd-ts.pStart);
-            const cnt=Math.max(2, Math.floor(ts.strokeData.length*prog));
-            const partial=ts.strokeData.slice(0, cnt);
-            if (ts.isRadial && partial.length>=3) partialMesh=buildRadialFill(partial.map(d=>d.pos), ts.color, ts.opacity);
-            else if (ts.isLasso && partial.length>=3) partialMesh=buildLassoFill(partial.map(d=>d.pos), ts.color, ts.opacity);
-            else if (!ts.isLasso && !ts.isRadial) partialMesh=buildStrokeMesh(partial, ts.size, ts.color, ts.opacity);
-            if (partialMesh) scene.add(partialMesh);
-          } else { m.visible=false; }
-        }
-        renderer.render(scene, camera);
+        renderFrame((frame / totalFrames) * playDur);
         tempCtx.drawImage(renderer.domElement, 0, 0, exW, exH);
-        const vf = new VideoFrame(tempCanvas, { timestamp: frame * (1_000_000/FPS) });
-        encoder.encode(vf, { keyFrame: frame%(FPS*2)===0 });
+        drawWatermark(tempCtx, exW, exH);
+        const vf = new VideoFrame(tempCanvas, { timestamp: frame * (1_000_000 / FPS) });
+        encoder.encode(vf, { keyFrame: frame % (FPS * 2) === 0 });
         vf.close();
-
-        if (frame%10===0) { progressBar.style.width=((frame/totalFrames)*100)+'%'; await new Promise(r=>setTimeout(r,0)); }
-        while (encoder.encodeQueueSize > 10) await new Promise(r=>setTimeout(r,1));
+        if (frame % 10 === 0) { progressBar.style.width = ((frame / totalFrames) * 100) + '%'; await new Promise(r => setTimeout(r, 0)); }
+        while (encoder.encodeQueueSize > 10) await new Promise(r => setTimeout(r, 1));
       }
 
       await encoder.flush(); encoder.close();
       muxer.finalize();
       const blob = new Blob([target.buffer], { type: 'video/mp4' });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href=url; a.download='nib-timelapse.mp4'; a.click();
+      const a = document.createElement('a'); a.href = url; a.download = 'nib-timelapse.mp4'; a.click();
       URL.revokeObjectURL(url);
       success = true;
-    } catch(err) { console.warn('WebCodecs failed:', err); }
+    } catch (err) { console.warn('WebCodecs failed:', err); }
   }
 
-  // Fallback 2: MediaRecorder with MP4 (Chrome/Edge 116+)
-  // Fallback 3: MediaRecorder with WebM (last resort)
+  // ── Fallback: MediaRecorder ──
   if (!success) {
     try {
-      // Prefer MP4, then WebM
       let mime, fileExt;
       const mp4Types = ['video/mp4;codecs=avc1', 'video/mp4;codecs="avc1.42E01E"', 'video/mp4'];
       const webmTypes = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
-      const allTypes = [...mp4Types, ...webmTypes];
-
-      for (const t of allTypes) {
-        if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t)) { mime = t; break; }
-      }
+      for (const t of [...mp4Types, ...webmTypes]) { if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t)) { mime = t; break; } }
       if (!mime) mime = 'video/webm';
       fileExt = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
-      console.log('MediaRecorder using:', mime);
 
-      const stream = renderer.domElement.captureStream(30);
+      const stream = tempCanvas.captureStream(30);
       const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 2_000_000 });
       const chunks = [];
-      recorder.ondataavailable = e => { if(e.data.size>0) chunks.push(e.data); };
+      recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
       const done = new Promise(res => { recorder.onstop = () => res(); });
       recorder.start();
 
       let fr = 0;
       await new Promise(resolve => {
         const iv = setInterval(() => {
-          const t = (fr/totalFrames)*playDur;
-          if (partialMesh) { scene.remove(partialMesh); partialMesh.geometry?.dispose(); partialMesh.material?.dispose(); partialMesh=null; }
-          for (let i=0;i<timeline.length;i++) {
-            const ts=timeline[i], m=exportMeshes[i]; if(!m) continue;
-            if (t>=ts.pEnd) m.visible=true;
-            else if (t>=ts.pStart) {
-              m.visible=false;
-              const prog=(t-ts.pStart)/(ts.pEnd-ts.pStart), cnt=Math.max(2,Math.floor(ts.strokeData.length*prog));
-              const partial=ts.strokeData.slice(0,cnt);
-              if (ts.isRadial&&partial.length>=3) partialMesh=buildRadialFill(partial.map(d=>d.pos),ts.color,ts.opacity);
-              else if (ts.isLasso&&partial.length>=3) partialMesh=buildLassoFill(partial.map(d=>d.pos),ts.color,ts.opacity);
-              else if(!ts.isLasso&&!ts.isRadial) partialMesh=buildStrokeMesh(partial,ts.size,ts.color,ts.opacity);
-              if(partialMesh) scene.add(partialMesh);
-            } else m.visible=false;
-          }
-          renderer.render(scene, camera);
-          progressBar.style.width=((fr/totalFrames)*100)+'%';
+          renderFrame((fr / totalFrames) * playDur);
+          tempCtx.drawImage(renderer.domElement, 0, 0, exW, exH);
+          drawWatermark(tempCtx, exW, exH);
+          progressBar.style.width = ((fr / totalFrames) * 100) + '%';
           fr++;
-          if (fr>totalFrames) { clearInterval(iv); recorder.stop(); resolve(); }
-        }, 1000/FPS);
+          if (fr > totalFrames) { clearInterval(iv); recorder.stop(); resolve(); }
+        }, 1000 / FPS);
       });
 
       await done;
       const blob = new Blob(chunks, { type: mime });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href=url; a.download=`nib-timelapse.${fileExt}`; a.click();
+      const a = document.createElement('a'); a.href = url; a.download = `nib-timelapse.${fileExt}`; a.click();
       URL.revokeObjectURL(url);
       showToast(`Exported as .${fileExt}`);
       success = true;
-    } catch(err) { console.error('MediaRecorder also failed:', err); showToast('Export failed'); }
+    } catch (err) { console.error('MediaRecorder failed:', err); showToast('Export failed'); }
   }
 
-  // Cleanup
-  if (partialMesh) { scene.remove(partialMesh); partialMesh.geometry?.dispose(); partialMesh.material?.dispose(); }
-  exportMeshes.forEach(m => { if(m) { scene.remove(m); m.geometry?.dispose(); m.material?.dispose(); } });
-  strokes.forEach((s,i) => { s.mesh.visible = origVis[i]; });
+  // ── Cleanup ──
+  if (partialMesh) { exportScene.remove(partialMesh); partialMesh.geometry?.dispose(); partialMesh.material?.dispose(); }
+  exportMeshes.forEach(m => { if (m) { exportScene.remove(m); m.geometry?.dispose(); m.material?.dispose(); } });
+
+  // Restore main scene rendering
+  renderer.setClearColor(0xffffff, 1);
   renderer.render(scene, camera);
+  startRenderLoop();
 
   overlay.style.display = 'none';
   document.querySelector('.toolbar').style.opacity = '1';
@@ -1291,7 +1398,13 @@ window.addEventListener('resize', () => {
 });
 
 // ─── RENDER ───
-(function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); })();
+let animFrameId = null;
+function startRenderLoop() {
+  function tick() { animFrameId = requestAnimationFrame(tick); renderer.render(scene, camera); }
+  tick();
+}
+function stopRenderLoop() { if (animFrameId) { cancelAnimationFrame(animFrameId); animFrameId = null; } }
+startRenderLoop();
 updateStatus(); syncSizeUI();
 </script>
 </body>
