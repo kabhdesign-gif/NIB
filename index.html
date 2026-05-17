@@ -187,6 +187,10 @@
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.37 2.63a2.12 2.12 0 013 3L14 13l-4 1 1-4z"/><path d="M9 14.5A5.5 5.5 0 003.5 20H2v1h3.5A5.5 5.5 0 009 14.5z"/></svg>
     Brush
   </button>
+  <button id="btn-line" title="Line 1-20px (N)">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="19" x2="19" y2="5"/></svg>
+    Line
+  </button>
   <button id="btn-eraser" title="Eraser (E / ~)">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20H7L3 16l9-9 8 8-4 4z"/><path d="m6.5 17.5 5-5"/></svg>
     Eraser
@@ -259,6 +263,7 @@
     <h3>Tools</h3>
     <div class="row"><span>Pen (fine 1-5px)</span><span class="key">P</span></div>
     <div class="row"><span>Brush (paint 1-20px)</span><span class="key">B</span></div>
+    <div class="row"><span>Line (straight 1-20px)</span><span class="key">N</span></div>
     <div class="row"><span>Eraser (partial)</span><span class="key">E</span> <span class="key">~</span></div>
     <div class="row"><span>Lasso (solid fill)</span><span class="key">L</span></div>
     <div class="row"><span>Shade (30% fill)</span><span class="key">G</span></div>
@@ -300,11 +305,12 @@ const MIN_PRESSURE_WIDTH = 0.1;
 // ─── STATE ───
 let currentColor = PALETTE[0];
 let penSize = 1, brushSize = 6, eraserSize = 20;
-let currentTool = 'pen'; // pen | brush | eraser | lasso | gradient | radial
+let currentTool = 'pen'; // pen | brush | line | eraser | lasso | gradient | radial
 let isDrawing = false;
 let pressureEnabled = true, smoothLevel = 1; // 0=off, 1=light, 2=heavy
 let currentStrokeData = [];
 let lassoPoints = [];
+let lineStart = null; // Vector3 for line tool start point
 let strokes = [];
 let undoStack = [];
 let previewMesh = null, mirrorPreviewMesh = null, lassoPreviewLine = null;
@@ -322,7 +328,7 @@ let symA = null, symB = null, draggingHandle = null;
 
 function getActiveSize() {
   if (currentTool === 'pen') return penSize;
-  if (currentTool === 'brush') return brushSize;
+  if (currentTool === 'brush' || currentTool === 'line') return brushSize;
   if (currentTool === 'eraser') return eraserSize;
   return 1;
 }
@@ -877,6 +883,7 @@ renderer.domElement.addEventListener('pointerdown', e => {
 
   if (currentTool === 'eraser') { eraserUndoSaved = false; eraseAt(pos, eraserSize); return; }
   if (currentTool === 'lasso' || currentTool === 'gradient' || currentTool === 'radial') { lassoPoints = [pos]; renderer.domElement.setPointerCapture(e.pointerId); return; }
+  if (currentTool === 'line') { lineStart = pos; renderer.domElement.setPointerCapture(e.pointerId); return; }
 
   // pen or brush
   saveUndoState();
@@ -904,6 +911,22 @@ renderer.domElement.addEventListener('pointermove', e => {
     if (pos.distanceTo(last) >= 3) { lassoPoints.push(pos); updateLassoPreview(currentTool==='gradient'||currentTool==='radial'); }
     return;
   }
+  if (currentTool === 'line' && lineStart) {
+    clearPreviews();
+    const pos = getWorldPos(e);
+    const lineData = [
+      { pos: lineStart.clone(), pressure: 0.5 },
+      { pos: pos, pressure: 0.5 }
+    ];
+    previewMesh = buildRibbonMesh(lineData, brushSize, currentColor, { opacity: 0.5, transparent: true });
+    if (previewMesh) scene.add(previewMesh);
+    if (symmetryEnabled) {
+      const mirData = mirrorStrokeData(lineData);
+      mirrorPreviewMesh = buildRibbonMesh(mirData, brushSize, currentColor, { opacity: 0.5, transparent: true });
+      if (mirrorPreviewMesh) scene.add(mirrorPreviewMesh);
+    }
+    return;
+  }
 
   if (e.getCoalescedEvents) { for (const ce of e.getCoalescedEvents()) addSample(ce); }
   else addSample(e);
@@ -927,6 +950,28 @@ renderer.domElement.addEventListener('pointerup', e => {
   if (currentTool === 'eraser') return;
 
   clearPreviews();
+
+  if (currentTool === 'line' && lineStart) {
+    const pos = getWorldPos(e);
+    if (lineStart.distanceTo(pos) > 2) {
+      saveUndoState();
+      // Generate intermediate points for a clean line with eraser compatibility
+      const steps = Math.max(2, Math.ceil(lineStart.distanceTo(pos) / 2));
+      const lineData = [];
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        lineData.push({
+          pos: new THREE.Vector3(
+            lineStart.x + (pos.x - lineStart.x) * t,
+            lineStart.y + (pos.y - lineStart.y) * t, 0),
+          pressure: 0.5
+        });
+      }
+      commitStroke(lineData, currentColor, brushSize, 1, false);
+    }
+    lineStart = null;
+    updateStatus(); return;
+  }
 
   if (currentTool === 'lasso' || currentTool === 'gradient' || currentTool === 'radial') {
     if (lassoPoints.length >= 3) {
@@ -956,6 +1001,7 @@ window.addEventListener('keydown', e => {
   if ((e.ctrlKey||e.metaKey) && e.key==='z') { e.preventDefault(); undo(); }
   if (e.key==='p') setTool('pen');
   if (e.key==='b') setTool('brush');
+  if (e.key==='n') setTool('line');
   if (e.key==='e') setTool('eraser');
   if (e.key==='l') setTool('lasso');
   if (e.key==='g') setTool('gradient');
@@ -972,7 +1018,7 @@ window.addEventListener('keydown', e => {
 
 function adjustSize(delta) {
   if (currentTool==='pen') { penSize = Math.max(1, Math.min(5, penSize+delta)); }
-  else if (currentTool==='brush') { brushSize = Math.max(1, Math.min(20, brushSize+delta)); }
+  else if (currentTool==='brush' || currentTool==='line') { brushSize = Math.max(1, Math.min(20, brushSize+delta)); }
   else if (currentTool==='eraser') { eraserSize = Math.max(2, Math.min(80, eraserSize+delta)); }
   syncSizeUI();
 }
@@ -1003,7 +1049,7 @@ const sizeVal = document.getElementById('size-val');
 sizeSlider.addEventListener('input', () => {
   const v = parseInt(sizeSlider.value);
   if (currentTool==='pen') penSize = v;
-  else if (currentTool==='brush') brushSize = v;
+  else if (currentTool==='brush' || currentTool==='line') brushSize = v;
   else if (currentTool==='eraser') eraserSize = v;
   sizeVal.textContent = v;
 });
@@ -1011,7 +1057,7 @@ sizeSlider.addEventListener('input', () => {
 function syncSizeUI() {
   let min, max, val;
   if (currentTool==='pen') { min=1; max=5; val=penSize; }
-  else if (currentTool==='brush') { min=1; max=20; val=brushSize; }
+  else if (currentTool==='brush' || currentTool==='line') { min=1; max=20; val=brushSize; }
   else if (currentTool==='eraser') { min=2; max=80; val=eraserSize; }
   else { min=1; max=5; val=1; }
   sizeSlider.min = min; sizeSlider.max = max; sizeSlider.value = val; sizeVal.textContent = val;
@@ -1019,7 +1065,7 @@ function syncSizeUI() {
 
 function setTool(tool) {
   currentTool = tool;
-  ['pen','brush','eraser','lasso','gradient','radial'].forEach(t => document.getElementById('btn-'+t).classList.toggle('active', t===tool));
+  ['pen','brush','line','eraser','lasso','gradient','radial'].forEach(t => document.getElementById('btn-'+t).classList.toggle('active', t===tool));
   renderer.domElement.style.cursor = tool==='eraser'?'none':'crosshair';
   eraserCursorEl.style.display = tool==='eraser'?'block':'none';
   syncSizeUI();
@@ -1053,6 +1099,7 @@ document.getElementById('info-overlay').addEventListener('click', e => { if (e.t
 
 document.getElementById('btn-pen').addEventListener('click', () => setTool('pen'));
 document.getElementById('btn-brush').addEventListener('click', () => setTool('brush'));
+document.getElementById('btn-line').addEventListener('click', () => setTool('line'));
 document.getElementById('btn-eraser').addEventListener('click', () => setTool('eraser'));
 document.getElementById('btn-lasso').addEventListener('click', () => setTool('lasso'));
 document.getElementById('btn-gradient').addEventListener('click', () => setTool('gradient'));
