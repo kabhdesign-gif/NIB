@@ -277,6 +277,7 @@
     <div class="row"><span>Brush size ±</span><span class="key">[</span> <span class="key">]</span></div>
     <div class="row"><span>Hide / show UI</span><span class="key">H</span></div>
     <div class="row"><span>Paste reference image</span><span class="key">Ctrl+V</span></div>
+    <div class="row"><span>Freeze/unlock refs (trace mode)</span><span class="key">F</span></div>
     <div class="row"><span>Resize ref image</span><span>Scroll wheel</span></div>
     <h3>Export</h3>
     <div class="row"><span>PNG screenshot</span><span>PNG button</span></div>
@@ -319,7 +320,7 @@ let timelineEpoch = 0, currentStrokeStart = 0;
 
 // Reference images
 let refImages = []; // { mesh, closeBtn, borderEl, blobUrl }
-let draggingRef = null, dragRefOffset = null;
+let draggingRef = null, dragRefOffset = null, refsLocked = false;
 const REF_BASE_RENDER_ORDER = 100000; // always above strokes
 
 // Symmetry
@@ -511,12 +512,65 @@ function buildLassoFill(points, color, opacity) {
   shape.moveTo(points[0].x, points[0].y);
   for (let i=1;i<points.length;i++) shape.lineTo(points[i].x, points[i].y);
   shape.closePath();
-  const geo = new THREE.ShapeGeometry(shape);
+  let geo = new THREE.ShapeGeometry(shape);
+
+  // Subdivide for fine-grained eraser support
+  geo = subdivideFillGeo(geo, 8);
+
   const op = opacity !== undefined ? opacity : 1;
   return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
     color: new THREE.Color(color), side: THREE.DoubleSide,
     transparent: true, opacity: op, depthTest: false, depthWrite: false
   }));
+}
+
+// Subdivide a fill geometry so triangles have max edge length ~maxEdge px
+function subdivideFillGeo(geo, maxEdge) {
+  const srcPos = geo.getAttribute('position').array;
+  const srcIdx = geo.getIndex()?.array;
+  if (!srcIdx || srcIdx.length < 3) return geo;
+
+  let verts = Array.from(srcPos);
+  let tris = Array.from(srcIdx);
+
+  for (let iter = 0; iter < 5; iter++) {
+    let didSplit = false;
+    const newTris = [];
+    const midCache = {};
+
+    function midpoint(a, b) {
+      const key = Math.min(a,b) + '_' + Math.max(a,b);
+      if (midCache[key] !== undefined) return midCache[key];
+      const idx = verts.length / 3;
+      verts.push((verts[a*3]+verts[b*3])/2, (verts[a*3+1]+verts[b*3+1])/2, 0);
+      midCache[key] = idx;
+      return idx;
+    }
+
+    for (let i = 0; i < tris.length; i += 3) {
+      const a=tris[i], b=tris[i+1], c=tris[i+2];
+      const ab = Math.hypot(verts[a*3]-verts[b*3], verts[a*3+1]-verts[b*3+1]);
+      const bc = Math.hypot(verts[b*3]-verts[c*3], verts[b*3+1]-verts[c*3+1]);
+      const ca = Math.hypot(verts[c*3]-verts[a*3], verts[c*3+1]-verts[a*3+1]);
+
+      if (ab > maxEdge || bc > maxEdge || ca > maxEdge) {
+        didSplit = true;
+        const mab=midpoint(a,b), mbc=midpoint(b,c), mca=midpoint(c,a);
+        newTris.push(a,mab,mca, mab,b,mbc, mca,mbc,c, mab,mbc,mca);
+      } else {
+        newTris.push(a,b,c);
+      }
+    }
+    tris = newTris;
+    if (!didSplit) break;
+  }
+
+  const newGeo = new THREE.BufferGeometry();
+  newGeo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  newGeo.setIndex(tris);
+  newGeo.computeVertexNormals();
+  geo.dispose();
+  return newGeo;
 }
 
 function buildRadialFill(points, color, maxOpacity) {
@@ -612,8 +666,32 @@ function updateLassoPreview(isGradient) {
 }
 
 // ─── PARTIAL ERASER ───
+function eraseTrianglesAt(mesh, erasePos, radius) {
+  // Remove triangles whose centroid is within eraser radius
+  const geo = mesh.geometry;
+  const posArr = geo.getAttribute('position').array;
+  const idx = geo.getIndex();
+  if (!idx) return 'unchanged';
+
+  const indices = Array.from(idx.array);
+  const surviving = [];
+
+  for (let i = 0; i < indices.length; i += 3) {
+    const a=indices[i], b=indices[i+1], c=indices[i+2];
+    const cx = (posArr[a*3]+posArr[b*3]+posArr[c*3]) / 3;
+    const cy = (posArr[a*3+1]+posArr[b*3+1]+posArr[c*3+1]) / 3;
+    if (Math.hypot(cx-erasePos.x, cy-erasePos.y) > radius) {
+      surviving.push(a, b, c);
+    }
+  }
+
+  if (surviving.length === indices.length) return 'unchanged';
+  if (surviving.length === 0) return 'empty';
+  geo.setIndex(surviving);
+  return 'modified';
+}
+
 function eraseAt(worldPos, radius) {
-  // Also erase at mirrored position when symmetry is on
   const positions = [worldPos];
   if (symmetryEnabled) positions.push(reflectPoint(worldPos, symA, symB));
 
@@ -621,6 +699,33 @@ function eraseAt(worldPos, radius) {
   for (const erasePos of positions) {
     for (let si = strokes.length-1; si >= 0; si--) {
       const s = strokes[si];
+
+      // For fills (lasso/shade): try triangle-level erasing
+      if (s.isLasso && !s.isRadial) {
+        const result = eraseTrianglesAt(s.mesh, erasePos, radius);
+        if (result === 'unchanged') continue;
+        changed = true;
+        if (!eraserUndoSaved) { eraserUndoSaved = true; saveUndoState(); }
+        if (result === 'empty') {
+          scene.remove(s.mesh); s.mesh.geometry?.dispose(); s.mesh.material?.dispose();
+          strokes.splice(si, 1);
+        }
+        continue;
+      }
+
+      // For radial fills: remove entirely on hit
+      if (s.isRadial) {
+        let hasHit = false;
+        for (const d of s.strokeData) { if (erasePos.distanceTo(d.pos) < radius) { hasHit=true; break; } }
+        if (!hasHit) continue;
+        changed = true;
+        if (!eraserUndoSaved) { eraserUndoSaved = true; saveUndoState(); }
+        scene.remove(s.mesh); s.mesh.geometry?.dispose(); s.mesh.material?.dispose();
+        strokes.splice(si, 1);
+        continue;
+      }
+
+      // For pen/brush/line strokes: split into segments
       let hasHit = false;
       for (const d of s.strokeData) { if (erasePos.distanceTo(d.pos) < radius) { hasHit=true; break; } }
       if (!hasHit) continue;
@@ -629,10 +734,6 @@ function eraseAt(worldPos, radius) {
       scene.remove(s.mesh); s.mesh.geometry?.dispose(); s.mesh.material?.dispose();
       strokes.splice(si, 1);
 
-      // Filled shapes: remove entirely
-      if (s.isLasso || s.isRadial) continue;
-
-      // Pen/brush: split into surviving segments, using original smooth level
       const savedSmooth = smoothLevel;
       smoothLevel = s.smooth !== undefined ? s.smooth : savedSmooth;
       const segments = []; let seg = [];
@@ -796,12 +897,11 @@ function updateRefOverlays() {
     const hw = mesh.userData.refWidth * mesh.scale.x / 2;
     const hh = mesh.userData.refHeight * mesh.scale.y / 2;
 
-    // Top-right corner for close button
     const tr = worldToScreen(new THREE.Vector3(mesh.position.x + hw, mesh.position.y + hh, 0));
     ref.closeBtn.style.left = tr.x + 'px';
     ref.closeBtn.style.top = tr.y + 'px';
+    ref.closeBtn.style.display = refsLocked ? 'none' : 'flex';
 
-    // Border
     const tl = worldToScreen(new THREE.Vector3(mesh.position.x - hw, mesh.position.y + hh, 0));
     const br = worldToScreen(new THREE.Vector3(mesh.position.x + hw, mesh.position.y - hh, 0));
     const isActive = draggingRef === ref;
@@ -814,7 +914,7 @@ function updateRefOverlays() {
 }
 
 function hitTestRef(worldPos) {
-  // Check refs in reverse order (topmost first)
+  if (refsLocked) return null;
   for (let i = refImages.length - 1; i >= 0; i--) {
     const ref = refImages[i];
     const m = ref.mesh;
@@ -845,6 +945,7 @@ document.addEventListener('paste', e => {
 
 // Scroll to resize ref images
 renderer.domElement.addEventListener('wheel', e => {
+  if (refsLocked) return;
   const pos = getWorldPos(e);
   const ref = hitTestRef(pos);
   if (ref) {
@@ -977,7 +1078,11 @@ renderer.domElement.addEventListener('pointerup', e => {
     if (lassoPoints.length >= 3) {
       saveUndoState();
       const opacity = currentTool === 'gradient' ? 0.3 : currentTool === 'radial' ? 0.45 : 1;
-      const data = lassoPoints.map(p => ({ pos: p.clone(), pressure: 0.5 }));
+      let data = lassoPoints.map(p => ({ pos: p.clone(), pressure: 0.5 }));
+      // Smooth the outline for lasso/gradient (not radial — shader handles its own shape)
+      if (smoothLevel > 0 && currentTool !== 'radial') {
+        data = smoothStrokeData(data);
+      }
       commitStroke(data, currentColor, 0, opacity, true, currentTool === 'radial');
     }
     lassoPoints = [];
@@ -1011,6 +1116,7 @@ window.addEventListener('keydown', e => {
   if (e.key==='s'&&!e.ctrlKey&&!e.metaKey) toggleSmoothing();
   if (e.key==='m') toggleSymmetry();
   if (e.key==='h') toggleUI();
+  if (e.key==='f') toggleRefLock();
   if (e.key==='i') toggleInfo();
   if (e.key==='[') { adjustSize(-1); }
   if (e.key===']') { adjustSize(1); }
@@ -1087,6 +1193,14 @@ function toggleUI() {
   const els = [document.querySelector('.toolbar'), document.getElementById('status'), document.getElementById('pen-info'), document.getElementById('info-btn')];
   els.forEach(el => { if (el) el.style.display = uiHidden ? 'none' : ''; });
   if (uiHidden) showToast('UI hidden — press H to show');
+}
+
+function toggleRefLock() {
+  refsLocked = !refsLocked;
+  // Make refs semi-transparent when locked so you can trace through them
+  refImages.forEach(r => { r.mesh.material.opacity = refsLocked ? 0.35 : 1; });
+  updateRefOverlays();
+  showToast(refsLocked ? 'Refs locked — trace mode (F to unlock)' : 'Refs unlocked');
 }
 
 function toggleInfo() {
@@ -1301,29 +1415,48 @@ async function exportTimelapse() {
     ctx.fillText('Made with NIB', w / 2, h - 14);
   }
 
-  // ── Try WebCodecs + mp4-muxer ──
-  if (typeof VideoEncoder !== 'undefined') {
-    try {
-      let mp4Module;
-      const cdnUrls = [
-        'https://cdn.jsdelivr.net/npm/mp4-muxer@5/build/mp4-muxer.mjs',
-        'https://unpkg.com/mp4-muxer@5/build/mp4-muxer.mjs',
-        'https://cdn.jsdelivr.net/npm/mp4-muxer/build/mp4-muxer.mjs'
-      ];
-      for (const url of cdnUrls) { try { mp4Module = await import(url); break; } catch(_) {} }
-      if (!mp4Module) throw new Error('Could not load mp4-muxer');
-      const { Muxer, ArrayBufferTarget } = mp4Module;
+  // ── Decide encoding method BEFORE animating (prevents double-run) ──
+  let useWebCodecs = false;
+  let mp4Module = null;
 
+  if (typeof VideoEncoder !== 'undefined') {
+    const cdnUrls = [
+      'https://cdn.jsdelivr.net/npm/mp4-muxer@5/build/mp4-muxer.mjs',
+      'https://unpkg.com/mp4-muxer@5/build/mp4-muxer.mjs',
+      'https://cdn.jsdelivr.net/npm/mp4-muxer/build/mp4-muxer.mjs'
+    ];
+    for (const url of cdnUrls) { try { mp4Module = await import(url); break; } catch(_) {} }
+    if (mp4Module) {
+      try {
+        const testCfg = { codec: 'avc1.42001f', width: exW, height: exH, bitrate: 2_000_000, framerate: FPS };
+        const supported = await VideoEncoder.isConfigSupported(testCfg);
+        if (supported.supported) useWebCodecs = true;
+      } catch(_) {}
+    }
+  }
+
+  let mime, fileExt;
+  if (!useWebCodecs) {
+    const mp4Types = ['video/mp4;codecs=avc1', 'video/mp4;codecs="avc1.42E01E"', 'video/mp4'];
+    const webmTypes = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+    for (const t of [...mp4Types, ...webmTypes]) { if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t)) { mime = t; break; } }
+    if (!mime) mime = 'video/webm';
+    fileExt = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
+  }
+
+  detailEl.textContent = `${totalFrames} frames · ${useWebCodecs ? 'WebCodecs MP4' : 'MediaRecorder ' + (fileExt||'')}`;
+
+  // ── Run animation exactly ONCE with chosen method ──
+  try {
+    if (useWebCodecs) {
+      const { Muxer, ArrayBufferTarget } = mp4Module;
       const target = new ArrayBufferTarget();
       const muxer = new Muxer({ target, video: { codec: 'avc', width: exW, height: exH }, fastStart: 'in-memory' });
       const encoder = new VideoEncoder({
         output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
         error: err => console.error('Encode error:', err)
       });
-      const config = { codec: 'avc1.42001f', width: exW, height: exH, bitrate: 2_000_000, framerate: FPS };
-      const supported = await VideoEncoder.isConfigSupported(config);
-      if (!supported.supported) throw new Error('H.264 not supported');
-      encoder.configure(config);
+      encoder.configure({ codec: 'avc1.42001f', width: exW, height: exH, bitrate: 2_000_000, framerate: FPS });
 
       for (let frame = 0; frame <= totalFrames; frame++) {
         renderFrame((frame / totalFrames) * playDur);
@@ -1343,19 +1476,8 @@ async function exportTimelapse() {
       const a = document.createElement('a'); a.href = url; a.download = 'nib-timelapse.mp4'; a.click();
       URL.revokeObjectURL(url);
       success = true;
-    } catch (err) { console.warn('WebCodecs failed:', err); }
-  }
 
-  // ── Fallback: MediaRecorder ──
-  if (!success) {
-    try {
-      let mime, fileExt;
-      const mp4Types = ['video/mp4;codecs=avc1', 'video/mp4;codecs="avc1.42E01E"', 'video/mp4'];
-      const webmTypes = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
-      for (const t of [...mp4Types, ...webmTypes]) { if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t)) { mime = t; break; } }
-      if (!mime) mime = 'video/webm';
-      fileExt = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
-
+    } else {
       const stream = tempCanvas.captureStream(30);
       const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 2_000_000 });
       const chunks = [];
@@ -1380,10 +1502,9 @@ async function exportTimelapse() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a'); a.href = url; a.download = `nib-timelapse.${fileExt}`; a.click();
       URL.revokeObjectURL(url);
-      showToast(`Exported as .${fileExt}`);
       success = true;
-    } catch (err) { console.error('MediaRecorder failed:', err); showToast('Export failed'); }
-  }
+    }
+  } catch (err) { console.error('Export failed:', err); showToast('Export failed — check console'); }
 
   // ── Cleanup ──
   if (partialMesh) { exportScene.remove(partialMesh); partialMesh.geometry?.dispose(); partialMesh.material?.dispose(); }
