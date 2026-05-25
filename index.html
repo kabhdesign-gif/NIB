@@ -5,240 +5,113 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NIB</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#fff;color:#000;font-family:'IBM Plex Mono',monospace;overflow:hidden;height:100vh;width:100vw;user-select:none;touch-action:none}
+#canvas-container{position:absolute;inset:0;z-index:0}
+canvas{display:block;touch-action:none}
 
-  body {
-    background: #fff;
-    color: #000;
-    font-family: 'IBM Plex Mono', monospace;
-    overflow: hidden;
-    height: 100vh; width: 100vw;
-    user-select: none; touch-action: none;
-  }
+/* ── Toolbar ── */
+.toolbar{position:absolute;top:12px;left:50%;transform:translateX(-50%) scale(var(--tb-scale,1));transform-origin:top center;z-index:10;display:flex;align-items:center;gap:2px;background:#fff;border:1px solid #000;border-radius:6px;padding:4px 6px;flex-wrap:wrap;max-width:96vw;justify-content:center}
+.toolbar button,.toolbar label{display:flex;align-items:center;justify-content:center;gap:5px;background:transparent;border:1px solid transparent;color:#666;font-family:inherit;font-size:10px;font-weight:500;padding:6px 10px;border-radius:4px;cursor:pointer;transition:all .12s;white-space:nowrap}
+.toolbar button:hover{border-color:#ccc;color:#000}
+.toolbar button:active{transform:scale(.96)}
+.toolbar button.active{background:#000;color:#fff;border-color:#000}
+.toolbar button.toggle-on{background:#222;color:#fff;border-color:#222}
+.toolbar button:disabled{opacity:.25;pointer-events:none}
+.toolbar-resize{position:absolute;bottom:-12px;left:6px;width:22px;height:14px;cursor:ns-resize;z-index:11;display:flex;align-items:center;justify-content:center;opacity:.3;transition:opacity .15s;touch-action:none}
+.toolbar-resize:hover,.toolbar-resize:active{opacity:.7}
+.sep{width:1px;height:20px;background:#ccc;margin:0 3px;flex-shrink:0}
 
-  #canvas-container { position: absolute; inset: 0; z-index: 0; }
-  canvas { display: block; touch-action: none; }
+/* ── Swatches ── */
+.color-swatch{width:18px;height:18px;border-radius:50%;border:1px solid #bbb;cursor:pointer;transition:border-color .12s,transform .12s;flex-shrink:0}
+.color-swatch:hover{transform:scale(1.15)}
+.color-swatch.active{border-color:#000;border-width:2px;transform:scale(1.15)}
+.color-swatch.white-swatch{background:#fff!important;border:1px solid #ccc}
+.color-swatch.white-swatch.active{border:2px solid #000}
+.color-input{width:0;height:0;opacity:0;position:absolute}
 
-  /* ── Toolbar ── */
-  .toolbar {
-    position: absolute; top: 12px; left: 50%;
-    transform: translateX(-50%) scale(var(--tb-scale, 1));
-    transform-origin: top center;
-    z-index: 10; display: flex; align-items: center; gap: 2px;
-    background: #fff; border: 1px solid #000; border-radius: 6px;
-    padding: 4px 6px; flex-wrap: wrap; max-width: 96vw; justify-content: center;
-  }
+/* ── Slider ── */
+input[type="range"]{-webkit-appearance:none;width:70px;height:3px;background:#ccc;border-radius:2px;outline:none}
+input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;border-radius:50%;background:#000;cursor:pointer}
+.size-label{font-size:9px;color:#999;min-width:16px;text-align:center}
 
-  .toolbar-resize {
-    position: absolute; bottom: -12px; left: 6px;
-    width: 22px; height: 14px; cursor: ns-resize; z-index: 11;
-    display: flex; align-items: center; justify-content: center;
-    opacity: 0.3; transition: opacity 0.15s; touch-action: none;
-  }
-  .toolbar-resize:hover, .toolbar-resize:active { opacity: 0.7; }
-  .toolbar button, .toolbar label {
-    display: flex; align-items: center; justify-content: center; gap: 5px;
-    background: transparent; border: 1px solid transparent; color: #666;
-    font-family: inherit; font-size: 10px; font-weight: 500;
-    padding: 6px 10px; border-radius: 4px; cursor: pointer;
-    transition: all 0.12s; white-space: nowrap;
-  }
-  .toolbar button:hover { border-color: #ccc; color: #000; }
-  .toolbar button:active { transform: scale(0.96); }
-  .toolbar button.active { background: #000; color: #fff; border-color: #000; }
-  .toolbar button.toggle-on { background: #222; color: #fff; border-color: #222; }
-  .toolbar button:disabled { opacity: 0.25; pointer-events: none; }
+/* ── Status / Pen Info ── */
+.status{position:absolute;bottom:12px;left:12px;z-index:10;font-size:9px;color:#aaa}
+.pen-info{position:absolute;bottom:12px;right:12px;z-index:10;font-size:9px;color:#aaa;text-align:right}
+.pen-info .detected{color:#2a9d5c}
 
-  .sep { width: 1px; height: 20px; background: #ccc; margin: 0 3px; flex-shrink: 0; }
+/* ── Toast ── */
+.toast{position:absolute;bottom:12px;left:50%;transform:translateX(-50%) translateY(50px);z-index:20;background:#000;border:1px solid #333;padding:8px 16px;border-radius:6px;font-size:11px;color:#fff;opacity:0;transition:all .25s;pointer-events:none}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
-  /* ── Swatches ── */
-  .color-swatch {
-    width: 18px; height: 18px; border-radius: 50%;
-    border: 1px solid #bbb; cursor: pointer;
-    transition: border-color 0.12s, transform 0.12s; flex-shrink: 0;
-  }
-  .color-swatch:hover { transform: scale(1.15); }
-  .color-swatch.active { border-color: #000; border-width: 2px; transform: scale(1.15); }
-  .color-swatch.white-swatch { background: #fff !important; border: 1px solid #ccc; }
-  .color-swatch.white-swatch.active { border: 2px solid #000; }
-  .color-input { width: 0; height: 0; opacity: 0; position: absolute; }
+/* ── Eraser cursor ── */
+#eraser-cursor{position:absolute;pointer-events:none;z-index:5;border:1.5px solid rgba(0,0,0,.35);border-radius:50%;display:none;transform:translate(-50%,-50%)}
 
-  /* ── Sliders ── */
-  input[type="range"] {
-    -webkit-appearance: none; width: 70px; height: 3px;
-    background: #ccc; border-radius: 2px; outline: none;
-  }
-  input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none; width: 12px; height: 12px;
-    border-radius: 50%; background: #000; cursor: pointer;
-  }
-  .size-label { font-size: 9px; color: #999; min-width: 16px; text-align: center; }
+/* ── Symmetry ── */
+#symmetry-overlay{position:absolute;inset:0;z-index:4;pointer-events:none;display:none}
+#symmetry-overlay svg{width:100%;height:100%;position:absolute;inset:0}
+#symmetry-overlay .sym-line{stroke:rgba(0,0,0,.25);stroke-width:1;stroke-dasharray:6 5}
+.sym-handle{position:absolute;width:14px;height:14px;border-radius:50%;background:#000;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.2);transform:translate(-50%,-50%);cursor:grab;pointer-events:auto;z-index:6;display:none}
+.sym-handle:active{cursor:grabbing;transform:translate(-50%,-50%) scale(1.15)}
 
-  /* ── Status ── */
-  .status { position: absolute; bottom: 12px; left: 12px; z-index: 10; font-size: 9px; color: #aaa; }
-  .pen-info { position: absolute; bottom: 12px; right: 12px; z-index: 10; font-size: 9px; color: #aaa; text-align: right; }
-  .pen-info .detected { color: #2a9d5c; }
+/* ── Reference images ── */
+.ref-close{position:absolute;width:20px;height:20px;border-radius:50%;background:#000;color:#fff;border:1.5px solid #fff;font-size:12px;cursor:pointer;z-index:8;transform:translate(-50%,-50%);pointer-events:auto;box-shadow:0 1px 4px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;transition:transform .1s}
+.ref-close:hover{transform:translate(-50%,-50%) scale(1.2)}
+.ref-border{position:absolute;border:1.5px dashed rgba(0,0,0,.35);pointer-events:none;z-index:7;display:none}
 
-  /* ── Toast ── */
-  .toast {
-    position: absolute; bottom: 12px; left: 50%;
-    transform: translateX(-50%) translateY(50px); z-index: 20;
-    background: #000; border: 1px solid #333; padding: 8px 16px;
-    border-radius: 6px; font-size: 11px; color: #fff;
-    opacity: 0; transition: all 0.25s; pointer-events: none;
-  }
-  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+/* ── Export overlay ── */
+#export-overlay{display:none;position:absolute;inset:0;z-index:50;background:rgba(0,0,0,.75);align-items:center;justify-content:center;flex-direction:column;gap:10px}
+.ex-text{color:#fff;font-family:'IBM Plex Mono',monospace;font-size:12px}
+.ex-detail{color:#888;font-family:'IBM Plex Mono',monospace;font-size:10px}
+.bar-track{width:260px;height:4px;background:#444;border-radius:2px;overflow:hidden}
+.bar-fill{height:100%;width:0;background:#fff;border-radius:2px;transition:width .1s}
 
-  /* ── Eraser cursor ── */
-  #eraser-cursor {
-    position: absolute; pointer-events: none; z-index: 5;
-    border: 1.5px solid rgba(0,0,0,0.35); border-radius: 50%;
-    display: none; transform: translate(-50%, -50%);
-  }
+/* ── Info overlay ── */
+#info-overlay{display:none;position:absolute;inset:0;z-index:50;background:rgba(0,0,0,.6);align-items:center;justify-content:center}
+.info-box{background:#fff;border:1px solid #000;border-radius:8px;padding:24px 28px;max-width:420px;width:90vw;position:relative;font-size:11px;line-height:1.7;color:#333;max-height:80vh;overflow-y:auto}
+.info-box h2{font-size:14px;margin:0 0 12px;color:#000;font-weight:600}
+.info-box h3{font-size:11px;margin:14px 0 6px;color:#000;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.info-box .row{display:flex;justify-content:space-between;padding:2px 0}
+.info-box .key{background:#f0f0f0;border:1px solid #ddd;border-radius:3px;padding:0 5px;font-size:10px}
+.info-close{position:absolute;top:10px;right:12px;background:none;border:none;font-size:18px;cursor:pointer;color:#999;line-height:1}
+.info-close:hover{color:#000}
 
-  /* ── Symmetry ── */
-  #symmetry-overlay { position: absolute; inset: 0; z-index: 4; pointer-events: none; display: none; }
-  #symmetry-overlay svg { width: 100%; height: 100%; position: absolute; inset: 0; }
-  #symmetry-overlay .sym-line { stroke: rgba(0,0,0,0.25); stroke-width: 1; stroke-dasharray: 6 5; }
-  .sym-handle {
-    position: absolute; width: 14px; height: 14px; border-radius: 50%;
-    background: #000; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.2);
-    transform: translate(-50%, -50%); cursor: grab; pointer-events: auto; z-index: 6; display: none;
-  }
-  .sym-handle:active { cursor: grabbing; transform: translate(-50%, -50%) scale(1.15); }
-
-  /* ── Reference images ── */
-  .ref-close {
-    position: absolute; width: 20px; height: 20px; border-radius: 50%;
-    background: #000; color: #fff; border: 1.5px solid #fff;
-    font-size: 12px; line-height: 16px; text-align: center;
-    cursor: pointer; z-index: 8; transform: translate(-50%, -50%);
-    pointer-events: auto; box-shadow: 0 1px 4px rgba(0,0,0,0.3);
-    display: flex; align-items: center; justify-content: center;
-    transition: transform 0.1s;
-  }
-  .ref-close:hover { transform: translate(-50%, -50%) scale(1.2); }
-  .ref-border {
-    position: absolute; border: 1.5px dashed rgba(0,0,0,0.35);
-    pointer-events: none; z-index: 7; display: none;
-  }
-
-  /* ── Export overlay ── */
-  #export-overlay {
-    display: none; position: absolute; inset: 0; z-index: 50;
-    background: rgba(0,0,0,0.75); align-items: center; justify-content: center;
-    flex-direction: column; gap: 10px;
-  }
-  #export-overlay .ex-text { color: #fff; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
-  #export-overlay .ex-detail { color: #888; font-family: 'IBM Plex Mono', monospace; font-size: 10px; }
-  #export-overlay .bar-track { width: 260px; height: 4px; background: #444; border-radius: 2px; overflow: hidden; }
-  #export-overlay .bar-fill { height: 100%; width: 0%; background: #fff; border-radius: 2px; transition: width 0.1s; }
-
-  /* ── Info overlay ── */
-  #info-overlay {
-    display: none; position: absolute; inset: 0; z-index: 50;
-    background: rgba(0,0,0,0.6); align-items: center; justify-content: center;
-  }
-  .info-box {
-    background: #fff; border: 1px solid #000; border-radius: 8px;
-    padding: 24px 28px; max-width: 420px; width: 90vw; position: relative;
-    font-size: 11px; line-height: 1.7; color: #333; max-height: 80vh; overflow-y: auto;
-  }
-  .info-box h2 { font-size: 14px; margin: 0 0 12px; color: #000; font-weight: 600; }
-  .info-box h3 { font-size: 11px; margin: 14px 0 6px; color: #000; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-  .info-box .row { display: flex; justify-content: space-between; padding: 2px 0; }
-  .info-box .key { background: #f0f0f0; border: 1px solid #ddd; border-radius: 3px; padding: 0 5px; font-size: 10px; font-family: inherit; }
-  .info-close {
-    position: absolute; top: 10px; right: 12px; background: none; border: none;
-    font-size: 18px; cursor: pointer; color: #999; line-height: 1;
-  }
-  .info-close:hover { color: #000; }
-
-  /* ── Watermark ── */
-  .watermark {
-    position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
-    z-index: 2; font-size: 9px; color: #ccc; letter-spacing: 1px;
-    font-family: 'IBM Plex Mono', monospace; pointer-events: none;
-  }
-
-  /* ── Info button ── */
-  .info-btn {
-    position: absolute; top: 12px; right: 12px; z-index: 10;
-    width: 24px; height: 24px; border-radius: 50%;
-    background: #fff; border: 1px solid #000; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    font-family: 'IBM Plex Mono', monospace; font-size: 12px;
-    font-weight: 600; color: #000; transition: all 0.12s;
-  }
-  .info-btn:hover { background: #000; color: #fff; }
-
-  svg { display: inline; vertical-align: middle; }
+/* ── Watermark / Info btn ── */
+.watermark{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);z-index:2;font-size:9px;color:#ccc;letter-spacing:1px;pointer-events:none}
+.info-btn{position:absolute;top:12px;right:12px;z-index:10;width:24px;height:24px;border-radius:50%;background:#fff;border:1px solid #000;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#000;transition:all .12s}
+.info-btn:hover{background:#000;color:#fff}
+svg{display:inline;vertical-align:middle}
 </style>
 </head>
 <body>
 
 <div class="toolbar">
-  <button id="btn-pen" class="active" title="Pen 1-5px (P)">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-    Pen
-  </button>
-  <button id="btn-brush" title="Brush 1-20px (B)">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.37 2.63a2.12 2.12 0 013 3L14 13l-4 1 1-4z"/><path d="M9 14.5A5.5 5.5 0 003.5 20H2v1h3.5A5.5 5.5 0 009 14.5z"/></svg>
-    Brush
-  </button>
-  <button id="btn-line" title="Line 1-20px (N)">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="19" x2="19" y2="5"/></svg>
-    Line
-  </button>
-  <button id="btn-eraser" title="Eraser (E / ~)">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20H7L3 16l9-9 8 8-4 4z"/><path d="m6.5 17.5 5-5"/></svg>
-    Eraser
-  </button>
-  <button id="btn-lasso" title="Lasso Fill (L)">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12c0-4.97 4.03-9 9-9s9 4.03 9 9-4.03 9-9 9c-2.12 0-4.07-.74-5.6-1.97"/><circle cx="6" cy="18" r="3"/></svg>
-    Lasso
-  </button>
-  <button id="btn-gradient" title="Gradient Fill 30% (G)">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3" opacity="0.3"/><path d="M3 12c0-4.97 4.03-9 9-9s9 4.03 9 9"/></svg>
-    Shade
-  </button>
-  <button id="btn-radial" title="Radial Gradient (R)">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9" opacity="0.15"/><circle cx="12" cy="12" r="6" opacity="0.3"/><circle cx="12" cy="12" r="3" opacity="0.5"/></svg>
-    Glow
-  </button>
-
+  <button id="btn-pen" class="active" title="Pen 1-5px (P)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>Pen</button>
+  <button id="btn-brush" title="Brush 1-20px (B)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.37 2.63a2.12 2.12 0 013 3L14 13l-4 1 1-4z"/><path d="M9 14.5A5.5 5.5 0 003.5 20H2v1h3.5A5.5 5.5 0 009 14.5z"/></svg>Brush</button>
+  <button id="btn-line" title="Line 1-20px (N)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="19" x2="19" y2="5"/></svg>Line</button>
+  <button id="btn-eraser" title="Eraser (E / ~)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20H7L3 16l9-9 8 8-4 4z"/><path d="m6.5 17.5 5-5"/></svg>Eraser</button>
+  <button id="btn-lasso" title="Lasso Fill (L)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12c0-4.97 4.03-9 9-9s9 4.03 9 9-4.03 9-9 9c-2.12 0-4.07-.74-5.6-1.97"/><circle cx="6" cy="18" r="3"/></svg>Lasso</button>
+  <button id="btn-gradient" title="Shade 30% (G)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3" opacity=".3"/></svg>Shade</button>
+  <button id="btn-radial" title="Glow (R)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9" opacity=".15"/><circle cx="12" cy="12" r="6" opacity=".3"/><circle cx="12" cy="12" r="3" opacity=".5"/></svg>Glow</button>
   <div class="sep"></div>
-
   <div class="size-label" id="size-val">1</div>
   <input type="range" id="size-slider" min="1" max="5" value="1" step="1">
-
   <div class="sep"></div>
-
   <button id="btn-pressure" class="toggle-on" title="Pressure (T)">Pressure</button>
-  <button id="btn-stabilize" class="toggle-on" title="Smooth (S) — click to cycle">S1</button>
+  <button id="btn-stabilize" class="toggle-on" title="Smooth (S)">S1</button>
   <button id="btn-symmetry" title="Mirror (M)">Mirror</button>
-
   <div class="sep"></div>
-
-  <div id="swatches" style="display:flex;gap:3px;align-items:center;"></div>
-  <label title="Custom color" style="position:relative;cursor:pointer;font-size:10px;color:#999;">
-    +<input type="color" class="color-input" id="color-picker" value="#000000">
-  </label>
-
+  <div id="swatches" style="display:flex;gap:3px;align-items:center"></div>
+  <label title="Custom color" style="position:relative;cursor:pointer;font-size:10px;color:#999">+<input type="color" class="color-input" id="color-picker" value="#000000"></label>
   <div class="sep"></div>
-
   <button id="btn-undo" disabled title="Undo (Ctrl+Z)">Undo</button>
-  <button id="btn-clear" title="Clear all">Clear</button>
-
+  <button id="btn-clear" title="Clear">Clear</button>
   <div class="sep"></div>
-
-  <button id="btn-png" title="Export PNG">PNG</button>
-  <button id="btn-gltf" title="Export glTF">glTF</button>
-  <button id="btn-timelapse" title="Export Timelapse MP4">TM</button>
-  <div class="toolbar-resize" id="toolbar-resize" title="Drag to resize toolbar">
-    <svg width="14" height="8" viewBox="0 0 14 8" fill="none" stroke="#000" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="13" y2="1"/><line x1="3" y1="4" x2="11" y2="4"/><line x1="5" y1="7" x2="9" y2="7"/></svg>
-  </div>
+  <button id="btn-png">PNG</button>
+  <button id="btn-gltf">glTF</button>
+  <button id="btn-timelapse" title="Timelapse MP4">TM</button>
+  <div class="toolbar-resize" id="toolbar-resize" title="Drag to resize"><svg width="14" height="8" viewBox="0 0 14 8" fill="none" stroke="#000" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="13" y2="1"/><line x1="3" y1="4" x2="11" y2="4"/><line x1="5" y1="7" x2="9" y2="7"/></svg></div>
 </div>
 
 <div class="status" id="status">strokes: 0</div>
@@ -248,84 +121,70 @@
 <div id="symmetry-overlay"><svg><line id="sym-line" class="sym-line"/></svg></div>
 <div class="sym-handle" id="sym-handle-a"></div>
 <div class="sym-handle" id="sym-handle-b"></div>
-<div id="export-overlay">
-  <div class="ex-text" id="export-status">Exporting…</div>
-  <div class="bar-track"><div class="bar-fill" id="export-progress"></div></div>
-  <div class="ex-detail" id="export-detail"></div>
-</div>
+<div id="export-overlay"><div class="ex-text" id="export-status">Exporting…</div><div class="bar-track"><div class="bar-fill" id="export-progress"></div></div><div class="ex-detail" id="export-detail"></div></div>
 
-<div class="info-btn" id="info-btn" title="Shortcuts & Info (I)">?</div>
-
-<div id="info-overlay">
-  <div class="info-box">
-    <button class="info-close" id="info-close">×</button>
-    <h2>NIB — Sketch Tool</h2>
-    <h3>Tools</h3>
-    <div class="row"><span>Pen (fine 1-5px)</span><span class="key">P</span></div>
-    <div class="row"><span>Brush (paint 1-20px)</span><span class="key">B</span></div>
-    <div class="row"><span>Line (straight 1-20px)</span><span class="key">N</span></div>
-    <div class="row"><span>Eraser (partial)</span><span class="key">E</span> <span class="key">~</span></div>
-    <div class="row"><span>Lasso (solid fill)</span><span class="key">L</span></div>
-    <div class="row"><span>Shade (30% fill)</span><span class="key">G</span></div>
-    <div class="row"><span>Glow (radial gradient)</span><span class="key">R</span></div>
-    <h3>Modifiers</h3>
-    <div class="row"><span>Pressure sensitivity</span><span class="key">T</span></div>
-    <div class="row"><span>Smoothing (off/S1/S2/S3)</span><span class="key">S</span></div>
-    <div class="row"><span>Symmetry mirror</span><span class="key">M</span></div>
-    <h3>Actions</h3>
-    <div class="row"><span>Undo (15 levels)</span><span class="key">Ctrl+Z</span></div>
-    <div class="row"><span>Brush size ±</span><span class="key">[</span> <span class="key">]</span></div>
-    <div class="row"><span>Hide / show UI</span><span class="key">H</span></div>
-    <div class="row"><span>Paste reference image</span><span class="key">Ctrl+V</span></div>
-    <div class="row"><span>Freeze/unlock refs (trace mode)</span><span class="key">F</span></div>
-    <div class="row"><span>Resize ref image</span><span>Scroll wheel</span></div>
-    <h3>Export</h3>
-    <div class="row"><span>PNG screenshot</span><span>PNG button</span></div>
-    <div class="row"><span>3D geometry</span><span>glTF button</span></div>
-    <div class="row"><span>Timelapse video (H.264 MP4)</span><span>TM button</span></div>
-    <h3>Features</h3>
-    <div style="color:#666;">Wacom pressure & tilt support · palm rejection · live stroke preview · partial eraser with stroke splitting · per-stroke smoothing preservation · symmetry on all tools · reference image layer (Ctrl+V) · idle-gap compression in timelapse · resizable toolbar</div>
-  </div>
-</div>
+<div class="info-btn" id="info-btn" title="Info (I)">?</div>
+<div id="info-overlay"><div class="info-box">
+  <button class="info-close" id="info-close">×</button>
+  <h2>NIB — Sketch Tool</h2>
+  <h3>Tools</h3>
+  <div class="row"><span>Pen (fine 1-5px)</span><span class="key">P</span></div>
+  <div class="row"><span>Brush (paint 1-20px)</span><span class="key">B</span></div>
+  <div class="row"><span>Line (straight 1-20px)</span><span class="key">N</span></div>
+  <div class="row"><span>Eraser (partial)</span><span class="key">E</span> <span class="key">~</span></div>
+  <div class="row"><span>Lasso (solid fill)</span><span class="key">L</span></div>
+  <div class="row"><span>Shade (30% fill)</span><span class="key">G</span></div>
+  <div class="row"><span>Glow (radial gradient)</span><span class="key">R</span></div>
+  <h3>Modifiers</h3>
+  <div class="row"><span>Pressure sensitivity</span><span class="key">T</span></div>
+  <div class="row"><span>Smoothing cycle</span><span class="key">S</span></div>
+  <div class="row"><span>Symmetry mirror</span><span class="key">M</span></div>
+  <h3>Actions</h3>
+  <div class="row"><span>Undo (15 levels)</span><span class="key">Ctrl+Z</span></div>
+  <div class="row"><span>Brush size ±</span><span class="key">[</span> <span class="key">]</span></div>
+  <div class="row"><span>Hide / show UI</span><span class="key">H</span></div>
+  <div class="row"><span>Paste reference image</span><span class="key">Ctrl+V</span></div>
+  <div class="row"><span>Freeze refs (trace mode)</span><span class="key">F</span></div>
+  <div class="row"><span>Resize ref image</span><span>Scroll wheel</span></div>
+  <h3>Export</h3>
+  <div class="row"><span>PNG · glTF · Timelapse MP4</span><span>Toolbar buttons</span></div>
+</div></div>
 
 <div class="watermark">Made with NIB</div>
 <div id="canvas-container"></div>
 
-<script type="importmap">
-{ "imports": { "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js" } }
-</script>
-
+<script type="importmap">{"imports":{"three":"https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js"}}</script>
 <script type="module">
 import * as THREE from 'three';
 
-// ─── CONFIG ───
+// ════════════════════════════════════════
+// CONFIG
+// ════════════════════════════════════════
 const PALETTE = ['#000000','#ffffff','#808080','#e8a0a0','#a0c4e8','#a0e8b8','#e8dca0','#c8a0e8','#e8bfa0'];
 const MAX_HISTORY = 15;
-const MIN_PRESSURE_WIDTH = 0.1;
+const MIN_PW = 0.1; // min pressure width fraction
 
-// ─── STATE ───
+// ════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════
 let currentColor = PALETTE[0];
 let penSize = 1, brushSize = 6, eraserSize = 20;
-let currentTool = 'pen'; // pen | brush | line | eraser | lasso | gradient | radial
-let isDrawing = false;
-let pressureEnabled = true, smoothLevel = 1; // 0=off, 1=light, 2=heavy
-let currentStrokeData = [];
-let lassoPoints = [];
-let lineStart = null; // Vector3 for line tool start point
-let strokes = [];
-let undoStack = [];
+let currentTool = 'pen'; // pen|brush|line|eraser|lasso|gradient|radial
+let isDrawing = false, isExporting = false;
+let pressureEnabled = true, smoothLevel = 1; // 0-3
+let currentStrokeData = [], lassoPoints = [], lineStart = null;
+let strokes = [], undoStack = [];
 let previewMesh = null, mirrorPreviewMesh = null, lassoPreviewLine = null;
-let penDetected = false, eraserUndoSaved = false, isExporting = false;
+let penDetected = false, eraserUndoSaved = false;
 let timelineEpoch = 0, currentStrokeStart = 0;
-
-// Reference images
-let refImages = []; // { mesh, closeBtn, borderEl, blobUrl }
-let draggingRef = null, dragRefOffset = null, refsLocked = false;
-const REF_BASE_RENDER_ORDER = 100000; // always above strokes
+let renderOrderCounter = 0;
 
 // Symmetry
-let symmetryEnabled = false;
-let symA = null, symB = null, draggingHandle = null;
+let symmetryEnabled = false, symA = null, symB = null, draggingHandle = null;
+
+// Refs
+let refImages = [], draggingRef = null, dragRefOffset = null, refsLocked = false;
+const REF_RENDER_ORDER = 100000;
 
 function getActiveSize() {
   if (currentTool === 'pen') return penSize;
@@ -334,24 +193,26 @@ function getActiveSize() {
   return 1;
 }
 
-// ─── THREE SETUP ───
+// ════════════════════════════════════════
+// THREE.JS SETUP
+// ════════════════════════════════════════
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setClearColor(0xffffff, 1);
-renderer.sortObjects = false; // renderOrder controls draw order
+renderer.sortObjects = false;
 document.getElementById('canvas-container').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const camera = new THREE.OrthographicCamera(
-  -window.innerWidth/2, window.innerWidth/2, window.innerHeight/2, -window.innerHeight/2, 0.1, 100
-);
+const camera = new THREE.OrthographicCamera(-window.innerWidth/2, window.innerWidth/2, window.innerHeight/2, -window.innerHeight/2, 0.1, 100);
 camera.position.z = 10;
 const drawPlane = new THREE.Plane(new THREE.Vector3(0,0,1), 0);
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 
-// ─── ERASER CURSOR ───
+// ════════════════════════════════════════
+// ERASER CURSOR
+// ════════════════════════════════════════
 const eraserCursorEl = document.getElementById('eraser-cursor');
 function updateEraserCursor(e) {
   if (currentTool === 'eraser') {
@@ -361,1219 +222,630 @@ function updateEraserCursor(e) {
   } else eraserCursorEl.style.display = 'none';
 }
 
-// ─── SYMMETRY ───
+// ════════════════════════════════════════
+// SYMMETRY
+// ════════════════════════════════════════
 const symOverlay = document.getElementById('symmetry-overlay');
 const symLineEl = document.getElementById('sym-line');
 const symHandleA = document.getElementById('sym-handle-a');
 const symHandleB = document.getElementById('sym-handle-b');
-
 symA = new THREE.Vector3(0, window.innerHeight/2, 0);
 symB = new THREE.Vector3(0, -window.innerHeight/2, 0);
 
-function worldToScreen(p) {
-  const v = p.clone().project(camera);
-  return { x: (v.x*0.5+0.5)*window.innerWidth, y: (-v.y*0.5+0.5)*window.innerHeight };
-}
-function screenToWorld(sx, sy) {
-  const v = new THREE.Vector3((sx/window.innerWidth)*2-1, -(sy/window.innerHeight)*2+1, 0).unproject(camera);
-  v.z = 0; return v;
-}
-function reflectPoint(p, a, b) {
-  const dx = b.x-a.x, dy = b.y-a.y, len2 = dx*dx+dy*dy;
-  if (!len2) return p.clone();
-  const nx = -dy, ny = dx, vx = p.x-a.x, vy = p.y-a.y;
-  const dot = (vx*nx+vy*ny)/len2;
-  return new THREE.Vector3(p.x-2*dot*nx, p.y-2*dot*ny, 0);
-}
-function mirrorStrokeData(data) { return data.map(d => ({ pos: reflectPoint(d.pos, symA, symB), pressure: d.pressure })); }
-function mirrorPoints(pts) { return pts.map(p => reflectPoint(p, symA, symB)); }
+function worldToScreen(p) { const v = p.clone().project(camera); return { x:(v.x*.5+.5)*window.innerWidth, y:(-v.y*.5+.5)*window.innerHeight }; }
+function screenToWorld(sx,sy) { const v = new THREE.Vector3((sx/window.innerWidth)*2-1, -(sy/window.innerHeight)*2+1, 0).unproject(camera); v.z=0; return v; }
+function reflectPoint(p,a,b) { const dx=b.x-a.x,dy=b.y-a.y,l2=dx*dx+dy*dy; if(!l2)return p.clone(); const nx=-dy,ny=dx,vx=p.x-a.x,vy=p.y-a.y,d=(vx*nx+vy*ny)/l2; return new THREE.Vector3(p.x-2*d*nx,p.y-2*d*ny,0); }
+function mirrorStrokeData(data) { return data.map(d => ({ pos: reflectPoint(d.pos,symA,symB), pressure: d.pressure })); }
+function mirrorPoints(pts) { return pts.map(p => reflectPoint(p,symA,symB)); }
 
 function updateSymmetryOverlay() {
   if (!symmetryEnabled) { symOverlay.style.display='none'; symHandleA.style.display='none'; symHandleB.style.display='none'; return; }
   symOverlay.style.display='block'; symHandleA.style.display='block'; symHandleB.style.display='block';
-  const sa = worldToScreen(symA), sb = worldToScreen(symB);
-  symLineEl.setAttribute('x1',sa.x); symLineEl.setAttribute('y1',sa.y);
-  symLineEl.setAttribute('x2',sb.x); symLineEl.setAttribute('y2',sb.y);
-  symHandleA.style.left=sa.x+'px'; symHandleA.style.top=sa.y+'px';
-  symHandleB.style.left=sb.x+'px'; symHandleB.style.top=sb.y+'px';
+  const sa=worldToScreen(symA), sb=worldToScreen(symB);
+  symLineEl.setAttribute('x1',sa.x); symLineEl.setAttribute('y1',sa.y); symLineEl.setAttribute('x2',sb.x); symLineEl.setAttribute('y2',sb.y);
+  symHandleA.style.left=sa.x+'px'; symHandleA.style.top=sa.y+'px'; symHandleB.style.left=sb.x+'px'; symHandleB.style.top=sb.y+'px';
 }
+symHandleA.addEventListener('pointerdown',e=>{e.stopPropagation();draggingHandle='a';symHandleA.setPointerCapture(e.pointerId)});
+symHandleB.addEventListener('pointerdown',e=>{e.stopPropagation();draggingHandle='b';symHandleB.setPointerCapture(e.pointerId)});
+document.addEventListener('pointermove',e=>{if(!draggingHandle)return;const w=screenToWorld(e.clientX,e.clientY);if(draggingHandle==='a')symA.copy(w);else symB.copy(w);updateSymmetryOverlay()});
+document.addEventListener('pointerup',()=>{draggingHandle=null});
 
-symHandleA.addEventListener('pointerdown', e => { e.stopPropagation(); draggingHandle='a'; symHandleA.setPointerCapture(e.pointerId); });
-symHandleB.addEventListener('pointerdown', e => { e.stopPropagation(); draggingHandle='b'; symHandleB.setPointerCapture(e.pointerId); });
-document.addEventListener('pointermove', e => {
-  if (!draggingHandle) return;
-  const wp = screenToWorld(e.clientX, e.clientY);
-  if (draggingHandle==='a') symA.copy(wp); else symB.copy(wp);
-  updateSymmetryOverlay();
-});
-document.addEventListener('pointerup', () => { draggingHandle = null; });
-
-// ─── SMOOTHING ───
+// ════════════════════════════════════════
+// SMOOTHING
+// ════════════════════════════════════════
 function smoothStrokeData(data) {
-  if (smoothLevel === 0 || data.length < 3) return data;
-  let pts = data.map(d => ({ pos: d.pos.clone(), pressure: d.pressure }));
+  if (smoothLevel===0||data.length<3) return data;
+  let pts = data.map(d=>({pos:d.pos.clone(),pressure:d.pressure}));
 
-  // Pre-smooth raw positions for S2/S3
+  // Pre-smooth raw positions (S2/S3)
   if (smoothLevel >= 2) {
-    const passes = smoothLevel === 3 ? 6 : 3;
-    const W = smoothLevel === 3 ? 11 : 7;
-    for (let pass = 0; pass < passes; pass++) {
-      pts = pts.map((p, i) => {
-        if (i === 0 || i === pts.length - 1) return p;
-        const s = Math.max(0, i - Math.floor(W/2)), e = Math.min(pts.length, i + Math.ceil(W/2));
-        let sx=0, sy=0, sp=0;
-        for (let j=s; j<e; j++) { sx+=pts[j].pos.x; sy+=pts[j].pos.y; sp+=pts[j].pressure; }
-        const cnt = e-s;
-        return { pos: new THREE.Vector3(sx/cnt, sy/cnt, 0), pressure: sp/cnt };
+    const passes = smoothLevel===3?6:3, W = smoothLevel===3?11:7;
+    for (let pass=0;pass<passes;pass++) {
+      pts = pts.map((p,i)=>{
+        if(i===0||i===pts.length-1) return p;
+        const s=Math.max(0,i-Math.floor(W/2)), e=Math.min(pts.length,i+Math.ceil(W/2));
+        let sx=0,sy=0,sp=0; for(let j=s;j<e;j++){sx+=pts[j].pos.x;sy+=pts[j].pos.y;sp+=pts[j].pressure;}
+        const c=e-s; return {pos:new THREE.Vector3(sx/c,sy/c,0),pressure:sp/c};
       });
     }
   }
 
   // Chaikin subdivision
-  const chaikinIter = smoothLevel === 1 ? 2 : smoothLevel === 2 ? 3 : 4;
-  for (let iter = 0; iter < chaikinIter; iter++) {
-    const next = [pts[0]];
-    for (let i = 0; i < pts.length-1; i++) {
-      const p0=pts[i], p1=pts[i+1];
-      next.push(
-        { pos: new THREE.Vector3(p0.pos.x*0.75+p1.pos.x*0.25, p0.pos.y*0.75+p1.pos.y*0.25, 0), pressure: p0.pressure*0.75+p1.pressure*0.25 },
-        { pos: new THREE.Vector3(p0.pos.x*0.25+p1.pos.x*0.75, p0.pos.y*0.25+p1.pos.y*0.75, 0), pressure: p0.pressure*0.25+p1.pressure*0.75 }
-      );
+  const iters = [0,2,3,4][smoothLevel];
+  for (let it=0;it<iters;it++) {
+    const next=[pts[0]];
+    for(let i=0;i<pts.length-1;i++){
+      const p0=pts[i],p1=pts[i+1];
+      next.push({pos:new THREE.Vector3(p0.pos.x*.75+p1.pos.x*.25,p0.pos.y*.75+p1.pos.y*.25,0),pressure:p0.pressure*.75+p1.pressure*.25});
+      next.push({pos:new THREE.Vector3(p0.pos.x*.25+p1.pos.x*.75,p0.pos.y*.25+p1.pos.y*.75,0),pressure:p0.pressure*.25+p1.pressure*.75});
     }
-    next.push(pts[pts.length-1]); pts = next;
+    next.push(pts[pts.length-1]); pts=next;
   }
 
-  // Post-smooth positions for S2/S3
+  // Post-smooth (S2/S3)
   if (smoothLevel >= 2) {
-    const W = smoothLevel === 3 ? 17 : 11;
-    pts = pts.map((p, i) => {
-      if (i === 0 || i === pts.length - 1) return p;
-      const s = Math.max(0, i - Math.floor(W/2)), e = Math.min(pts.length, i + Math.ceil(W/2));
-      let sx=0, sy=0;
-      for (let j=s; j<e; j++) { sx+=pts[j].pos.x; sy+=pts[j].pos.y; }
-      const cnt = e-s;
-      return { pos: new THREE.Vector3(sx/cnt, sy/cnt, 0), pressure: p.pressure };
+    const W = smoothLevel===3?17:11;
+    pts = pts.map((p,i)=>{
+      if(i===0||i===pts.length-1) return p;
+      const s=Math.max(0,i-Math.floor(W/2)),e=Math.min(pts.length,i+Math.ceil(W/2));
+      let sx=0,sy=0; for(let j=s;j<e;j++){sx+=pts[j].pos.x;sy+=pts[j].pos.y;}
+      const c=e-s; return {pos:new THREE.Vector3(sx/c,sy/c,0),pressure:p.pressure};
     });
   }
 
-  // Pressure smoothing
-  const PW = smoothLevel >= 2 ? 9 : 5;
-  return pts.map((p,i) => {
-    const s = Math.max(0, i-Math.floor(PW/2)), e = Math.min(pts.length, i+Math.ceil(PW/2));
-    let sum=0; for (let j=s;j<e;j++) sum+=pts[j].pressure;
-    return { pos: p.pos, pressure: sum/(e-s) };
-  });
+  // Pressure smooth
+  const PW = smoothLevel>=2?9:5;
+  return pts.map((p,i)=>{const s=Math.max(0,i-Math.floor(PW/2)),e=Math.min(pts.length,i+Math.ceil(PW/2));let sum=0;for(let j=s;j<e;j++)sum+=pts[j].pressure;return{pos:p.pos,pressure:sum/(e-s)};});
 }
 
-// ─── MESH BUILDING ───
-function buildRibbonMesh(strokeData, baseWidth, color, opts={}) {
-  if (strokeData.length < 2) return null;
-  const smooth = smoothStrokeData(strokeData);
-  const verts = [], indices = [], n = smooth.length;
-  for (let i = 0; i < n; i++) {
+// ════════════════════════════════════════
+// MESH BUILDERS
+// ════════════════════════════════════════
+function applyRenderOrder(m) { m.renderOrder = renderOrderCounter++; }
+
+function buildRibbonMesh(data, baseWidth, color, opts={}) {
+  if (data.length<2) return null;
+  const smooth = smoothStrokeData(data);
+  const verts=[],indices=[],n=smooth.length;
+  for(let i=0;i<n;i++){
     let dir;
-    if (i===0) dir = new THREE.Vector2().subVectors(smooth[1].pos, smooth[0].pos);
-    else if (i===n-1) dir = new THREE.Vector2().subVectors(smooth[n-1].pos, smooth[n-2].pos);
-    else dir = new THREE.Vector2().subVectors(smooth[i+1].pos, smooth[i-1].pos);
-    const len = dir.length(); if (len>0) dir.divideScalar(len); else dir.set(1,0);
-    const perp = new THREE.Vector2(-dir.y, dir.x);
-    const pf = pressureEnabled ? MIN_PRESSURE_WIDTH+(1-MIN_PRESSURE_WIDTH)*smooth[i].pressure : 1;
-    const hw = (baseWidth*pf)/2;
-    verts.push(smooth[i].pos.x+perp.x*hw, smooth[i].pos.y+perp.y*hw, 0, smooth[i].pos.x-perp.x*hw, smooth[i].pos.y-perp.y*hw, 0);
-    if (i<n-1) { const bi=i*2; indices.push(bi,bi+1,bi+2, bi+1,bi+3,bi+2); }
+    if(i===0) dir=new THREE.Vector2().subVectors(smooth[1].pos,smooth[0].pos);
+    else if(i===n-1) dir=new THREE.Vector2().subVectors(smooth[n-1].pos,smooth[n-2].pos);
+    else dir=new THREE.Vector2().subVectors(smooth[i+1].pos,smooth[i-1].pos);
+    const len=dir.length(); if(len>0)dir.divideScalar(len);else dir.set(1,0);
+    const perp=new THREE.Vector2(-dir.y,dir.x);
+    const pf=pressureEnabled?MIN_PW+(1-MIN_PW)*smooth[i].pressure:1;
+    const hw=(baseWidth*pf)/2;
+    verts.push(smooth[i].pos.x+perp.x*hw,smooth[i].pos.y+perp.y*hw,0,smooth[i].pos.x-perp.x*hw,smooth[i].pos.y-perp.y*hw,0);
+    if(i<n-1){const bi=i*2;indices.push(bi,bi+1,bi+2,bi+1,bi+3,bi+2);}
   }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts,3));
-  geo.setIndex(indices); geo.computeVertexNormals();
-  const op = opts.opacity !== undefined ? opts.opacity : 1;
-  return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-    color: new THREE.Color(color), side: THREE.DoubleSide,
-    transparent: true, opacity: op, depthTest: false, depthWrite: false
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));
+  geo.setIndex(indices);
+  const op=opts.opacity!==undefined?opts.opacity:1;
+  return new THREE.Mesh(geo,new THREE.MeshBasicMaterial({color:new THREE.Color(color),side:THREE.DoubleSide,transparent:true,opacity:op,depthTest:false,depthWrite:false}));
+}
+
+function buildDot(pos,size,pressure,color,opacity){
+  const pf=pressureEnabled?MIN_PW+(1-MIN_PW)*pressure:1;
+  const geo=new THREE.CircleGeometry((size*pf)/2,16);
+  const op=opacity!==undefined?opacity:1;
+  const m=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({color:new THREE.Color(color),transparent:true,opacity:op,depthTest:false,depthWrite:false}));
+  m.position.copy(pos); return m;
+}
+
+function buildStrokeMesh(data,size,color,opacity){
+  if(data.length<2) return buildDot(data[0].pos,size,data[0].pressure,color,opacity);
+  return buildRibbonMesh(data,size,color,{opacity:opacity!==undefined?opacity:1});
+}
+
+// ── Subdivision for fill eraser support ──
+function subdivideFillGeo(geo,maxEdge){
+  const srcPos=geo.getAttribute('position').array,srcIdx=geo.getIndex()?.array;
+  if(!srcIdx||srcIdx.length<3) return geo;
+  let verts=Array.from(srcPos),tris=Array.from(srcIdx);
+  for(let it=0;it<5;it++){
+    let didSplit=false; const newTris=[],midCache={};
+    function mid(a,b){const k=Math.min(a,b)+'_'+Math.max(a,b);if(midCache[k]!==undefined)return midCache[k];const idx=verts.length/3;verts.push((verts[a*3]+verts[b*3])/2,(verts[a*3+1]+verts[b*3+1])/2,0);midCache[k]=idx;return idx;}
+    for(let i=0;i<tris.length;i+=3){
+      const a=tris[i],b=tris[i+1],c=tris[i+2];
+      const ab=Math.hypot(verts[a*3]-verts[b*3],verts[a*3+1]-verts[b*3+1]);
+      const bc=Math.hypot(verts[b*3]-verts[c*3],verts[b*3+1]-verts[c*3+1]);
+      const ca=Math.hypot(verts[c*3]-verts[a*3],verts[c*3+1]-verts[a*3+1]);
+      if(ab>maxEdge||bc>maxEdge||ca>maxEdge){didSplit=true;const mab=mid(a,b),mbc=mid(b,c),mca=mid(c,a);newTris.push(a,mab,mca,mab,b,mbc,mca,mbc,c,mab,mbc,mca);}
+      else newTris.push(a,b,c);
+    }
+    tris=newTris; if(!didSplit) break;
+  }
+  const ng=new THREE.BufferGeometry();
+  ng.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));
+  ng.setIndex(tris); geo.dispose(); return ng;
+}
+
+function buildLassoFill(points,color,opacity){
+  if(points.length<3) return null;
+  const shape=new THREE.Shape(); shape.moveTo(points[0].x,points[0].y);
+  for(let i=1;i<points.length;i++) shape.lineTo(points[i].x,points[i].y);
+  shape.closePath();
+  let geo=new THREE.ShapeGeometry(shape);
+  geo=subdivideFillGeo(geo,8);
+  const op=opacity!==undefined?opacity:1;
+  return new THREE.Mesh(geo,new THREE.MeshBasicMaterial({color:new THREE.Color(color),side:THREE.DoubleSide,transparent:true,opacity:op,depthTest:false,depthWrite:false}));
+}
+
+function buildRadialFill(points,color,maxOp){
+  if(points.length<3) return null;
+  let cx=0,cy=0; for(const p of points){cx+=p.x;cy+=p.y;} cx/=points.length;cy/=points.length;
+  let rad=0; for(const p of points){const d=Math.hypot(p.x-cx,p.y-cy);if(d>rad)rad=d;} if(!rad)rad=1;
+  const shape=new THREE.Shape(); shape.moveTo(points[0].x,points[0].y);
+  for(let i=1;i<points.length;i++) shape.lineTo(points[i].x,points[i].y);
+  shape.closePath();
+  const geo=new THREE.ShapeGeometry(shape);
+  const col=new THREE.Color(color);
+  return new THREE.Mesh(geo,new THREE.ShaderMaterial({
+    uniforms:{uCenter:{value:new THREE.Vector2(cx,cy)},uRadius:{value:rad},uColor:{value:new THREE.Vector3(col.r,col.g,col.b)},uMaxOpacity:{value:maxOp||0.45}},
+    vertexShader:`varying vec2 vPos;void main(){vPos=position.xy;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+    fragmentShader:`uniform vec2 uCenter;uniform float uRadius;uniform vec3 uColor;uniform float uMaxOpacity;varying vec2 vPos;void main(){float d=distance(vPos,uCenter);float t=clamp(d/uRadius,0.0,1.0);gl_FragColor=vec4(uColor,uMaxOpacity*(1.0-t*t));}`,
+    transparent:true,side:THREE.DoubleSide,depthTest:false,depthWrite:false
   }));
 }
 
-function buildDot(pos, size, pressure, color, opacity) {
-  const pf = pressureEnabled ? MIN_PRESSURE_WIDTH+(1-MIN_PRESSURE_WIDTH)*pressure : 1;
-  const geo = new THREE.CircleGeometry((size*pf)/2, 16);
-  const op = opacity !== undefined ? opacity : 1;
-  const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(color), transparent: true, opacity: op, depthTest: false, depthWrite: false });
-  const m = new THREE.Mesh(geo, mat); m.position.copy(pos); return m;
+// ════════════════════════════════════════
+// PREVIEW
+// ════════════════════════════════════════
+function clearPreviews(){[previewMesh,mirrorPreviewMesh,lassoPreviewLine].forEach(m=>{if(m){scene.remove(m);m.geometry?.dispose();m.material?.dispose();}});previewMesh=mirrorPreviewMesh=lassoPreviewLine=null;}
+
+function updateStrokePreview(){
+  clearPreviews(); if(currentStrokeData.length<2) return;
+  const sz=getActiveSize();
+  previewMesh=buildRibbonMesh(currentStrokeData,sz,currentColor,{opacity:.6});
+  if(previewMesh) scene.add(previewMesh);
+  if(symmetryEnabled){mirrorPreviewMesh=buildRibbonMesh(mirrorStrokeData(currentStrokeData),sz,currentColor,{opacity:.6});if(mirrorPreviewMesh)scene.add(mirrorPreviewMesh);}
 }
 
-function buildStrokeMesh(strokeData, size, color, opacity) {
-  const opts = opacity !== undefined ? { opacity, transparent: true } : {};
-  if (strokeData.length < 2) return buildDot(strokeData[0].pos, size, strokeData[0].pressure, color, opacity);
-  return buildRibbonMesh(strokeData, size, color, opts);
-}
-
-function buildLassoFill(points, color, opacity) {
-  if (points.length < 3) return null;
-  const shape = new THREE.Shape();
-  shape.moveTo(points[0].x, points[0].y);
-  for (let i=1;i<points.length;i++) shape.lineTo(points[i].x, points[i].y);
-  shape.closePath();
-  let geo = new THREE.ShapeGeometry(shape);
-
-  // Subdivide for fine-grained eraser support
-  geo = subdivideFillGeo(geo, 8);
-
-  const op = opacity !== undefined ? opacity : 1;
-  return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-    color: new THREE.Color(color), side: THREE.DoubleSide,
-    transparent: true, opacity: op, depthTest: false, depthWrite: false
-  }));
-}
-
-// Subdivide a fill geometry so triangles have max edge length ~maxEdge px
-function subdivideFillGeo(geo, maxEdge) {
-  const srcPos = geo.getAttribute('position').array;
-  const srcIdx = geo.getIndex()?.array;
-  if (!srcIdx || srcIdx.length < 3) return geo;
-
-  let verts = Array.from(srcPos);
-  let tris = Array.from(srcIdx);
-
-  for (let iter = 0; iter < 5; iter++) {
-    let didSplit = false;
-    const newTris = [];
-    const midCache = {};
-
-    function midpoint(a, b) {
-      const key = Math.min(a,b) + '_' + Math.max(a,b);
-      if (midCache[key] !== undefined) return midCache[key];
-      const idx = verts.length / 3;
-      verts.push((verts[a*3]+verts[b*3])/2, (verts[a*3+1]+verts[b*3+1])/2, 0);
-      midCache[key] = idx;
-      return idx;
-    }
-
-    for (let i = 0; i < tris.length; i += 3) {
-      const a=tris[i], b=tris[i+1], c=tris[i+2];
-      const ab = Math.hypot(verts[a*3]-verts[b*3], verts[a*3+1]-verts[b*3+1]);
-      const bc = Math.hypot(verts[b*3]-verts[c*3], verts[b*3+1]-verts[c*3+1]);
-      const ca = Math.hypot(verts[c*3]-verts[a*3], verts[c*3+1]-verts[a*3+1]);
-
-      if (ab > maxEdge || bc > maxEdge || ca > maxEdge) {
-        didSplit = true;
-        const mab=midpoint(a,b), mbc=midpoint(b,c), mca=midpoint(c,a);
-        newTris.push(a,mab,mca, mab,b,mbc, mca,mbc,c, mab,mbc,mca);
-      } else {
-        newTris.push(a,b,c);
-      }
-    }
-    tris = newTris;
-    if (!didSplit) break;
-  }
-
-  const newGeo = new THREE.BufferGeometry();
-  newGeo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
-  newGeo.setIndex(tris);
-  newGeo.computeVertexNormals();
-  geo.dispose();
-  return newGeo;
-}
-
-function buildRadialFill(points, color, maxOpacity) {
-  if (points.length < 3) return null;
-  // Compute centroid and radius
-  let cx=0, cy=0;
-  for (const p of points) { cx+=p.x; cy+=p.y; }
-  cx /= points.length; cy /= points.length;
-  let radius = 0;
-  for (const p of points) { const d = Math.sqrt((p.x-cx)**2 + (p.y-cy)**2); if (d>radius) radius=d; }
-  if (radius === 0) radius = 1;
-
-  const shape = new THREE.Shape();
-  shape.moveTo(points[0].x, points[0].y);
-  for (let i=1;i<points.length;i++) shape.lineTo(points[i].x, points[i].y);
-  shape.closePath();
-  const geo = new THREE.ShapeGeometry(shape);
-
-  const col = new THREE.Color(color);
-  const mat = new THREE.ShaderMaterial({
-    uniforms: {
-      uCenter: { value: new THREE.Vector2(cx, cy) },
-      uRadius: { value: radius },
-      uColor: { value: new THREE.Vector3(col.r, col.g, col.b) },
-      uMaxOpacity: { value: maxOpacity !== undefined ? maxOpacity : 0.45 }
-    },
-    vertexShader: `
-      varying vec2 vPos;
-      void main() {
-        vPos = position.xy;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: `
-      uniform vec2 uCenter;
-      uniform float uRadius;
-      uniform vec3 uColor;
-      uniform float uMaxOpacity;
-      varying vec2 vPos;
-      void main() {
-        float dist = distance(vPos, uCenter);
-        float t = clamp(dist / uRadius, 0.0, 1.0);
-        float alpha = uMaxOpacity * (1.0 - t * t);
-        gl_FragColor = vec4(uColor, alpha);
-      }
-    `,
-    transparent: true,
-    side: THREE.DoubleSide,
-    depthTest: false,
-    depthWrite: false
-  });
-
-  return new THREE.Mesh(geo, mat);
-}
-
-// ─── LIVE PREVIEW ───
-function clearPreviews() {
-  [previewMesh, mirrorPreviewMesh, lassoPreviewLine].forEach(m => {
-    if (m) { scene.remove(m); m.geometry?.dispose(); m.material?.dispose(); }
-  });
-  previewMesh = mirrorPreviewMesh = lassoPreviewLine = null;
-}
-
-function updateStrokePreview() {
-  clearPreviews();
-  if (currentStrokeData.length < 2) return;
-  const size = getActiveSize();
-  previewMesh = buildRibbonMesh(currentStrokeData, size, currentColor, { opacity: 0.6, transparent: true });
-  if (previewMesh) scene.add(previewMesh);
-  if (symmetryEnabled) {
-    mirrorPreviewMesh = buildRibbonMesh(mirrorStrokeData(currentStrokeData), size, currentColor, { opacity: 0.6, transparent: true });
-    if (mirrorPreviewMesh) scene.add(mirrorPreviewMesh);
+function updateLassoPreview(isShade){
+  clearPreviews(); if(lassoPoints.length<2) return;
+  const closed=[...lassoPoints,lassoPoints[0]];
+  const data=closed.map(p=>({pos:p.clone(),pressure:.5}));
+  lassoPreviewLine=buildRibbonMesh(data,1.5,currentColor,{opacity:.35});
+  if(lassoPreviewLine)scene.add(lassoPreviewLine);
+  if(lassoPoints.length>=3){
+    const po=isShade?.1:.15;
+    previewMesh=buildLassoFill(lassoPoints,currentColor,po);if(previewMesh)scene.add(previewMesh);
+    if(symmetryEnabled){mirrorPreviewMesh=buildLassoFill(mirrorPoints(lassoPoints),currentColor,po);if(mirrorPreviewMesh)scene.add(mirrorPreviewMesh);}
   }
 }
 
-function updateLassoPreview(isGradient) {
-  clearPreviews();
-  if (lassoPoints.length < 2) return;
-  const closed = [...lassoPoints, lassoPoints[0]];
-  const data = closed.map(p => ({ pos: p.clone(), pressure: 0.5 }));
-  lassoPreviewLine = buildRibbonMesh(data, 1.5, currentColor, { opacity: 0.35, transparent: true });
-  if (lassoPreviewLine) scene.add(lassoPreviewLine);
-
-  if (lassoPoints.length >= 3) {
-    const previewOpacity = isGradient ? 0.1 : 0.15;
-    previewMesh = buildLassoFill(lassoPoints, currentColor, previewOpacity);
-    if (previewMesh) scene.add(previewMesh);
-    if (symmetryEnabled) {
-      mirrorPreviewMesh = buildLassoFill(mirrorPoints(lassoPoints), currentColor, previewOpacity);
-      if (mirrorPreviewMesh) scene.add(mirrorPreviewMesh);
-    }
-  }
+// ════════════════════════════════════════
+// PARTIAL ERASER
+// ════════════════════════════════════════
+function eraseTrianglesAt(mesh,pos,r){
+  const geo=mesh.geometry,pa=geo.getAttribute('position').array,idx=geo.getIndex();
+  if(!idx) return 'unchanged';
+  const ia=Array.from(idx.array),surv=[];
+  for(let i=0;i<ia.length;i+=3){const a=ia[i],b=ia[i+1],c=ia[i+2];const cx=(pa[a*3]+pa[b*3]+pa[c*3])/3,cy=(pa[a*3+1]+pa[b*3+1]+pa[c*3+1])/3;if(Math.hypot(cx-pos.x,cy-pos.y)>r)surv.push(a,b,c);}
+  if(surv.length===ia.length) return 'unchanged';
+  if(!surv.length) return 'empty';
+  geo.setIndex(surv); return 'modified';
 }
 
-// ─── PARTIAL ERASER ───
-function eraseTrianglesAt(mesh, erasePos, radius) {
-  // Remove triangles whose centroid is within eraser radius
-  const geo = mesh.geometry;
-  const posArr = geo.getAttribute('position').array;
-  const idx = geo.getIndex();
-  if (!idx) return 'unchanged';
-
-  const indices = Array.from(idx.array);
-  const surviving = [];
-
-  for (let i = 0; i < indices.length; i += 3) {
-    const a=indices[i], b=indices[i+1], c=indices[i+2];
-    const cx = (posArr[a*3]+posArr[b*3]+posArr[c*3]) / 3;
-    const cy = (posArr[a*3+1]+posArr[b*3+1]+posArr[c*3+1]) / 3;
-    if (Math.hypot(cx-erasePos.x, cy-erasePos.y) > radius) {
-      surviving.push(a, b, c);
-    }
-  }
-
-  if (surviving.length === indices.length) return 'unchanged';
-  if (surviving.length === 0) return 'empty';
-  geo.setIndex(surviving);
-  return 'modified';
-}
-
-function eraseAt(worldPos, radius) {
-  const positions = [worldPos];
-  if (symmetryEnabled) positions.push(reflectPoint(worldPos, symA, symB));
-
-  let changed = false;
-  for (const erasePos of positions) {
-    for (let si = strokes.length-1; si >= 0; si--) {
-      const s = strokes[si];
-
-      // For fills (lasso/shade): try triangle-level erasing
-      if (s.isLasso && !s.isRadial) {
-        const result = eraseTrianglesAt(s.mesh, erasePos, radius);
-        if (result === 'unchanged') continue;
-        changed = true;
-        if (!eraserUndoSaved) { eraserUndoSaved = true; saveUndoState(); }
-        if (result === 'empty') {
-          scene.remove(s.mesh); s.mesh.geometry?.dispose(); s.mesh.material?.dispose();
-          strokes.splice(si, 1);
-        }
+function eraseAt(worldPos,radius){
+  const positions=[worldPos];
+  if(symmetryEnabled) positions.push(reflectPoint(worldPos,symA,symB));
+  let changed=false;
+  for(const ep of positions){
+    for(let si=strokes.length-1;si>=0;si--){
+      const s=strokes[si];
+      // Lasso/shade fills: triangle-level erase
+      if(s.isLasso&&!s.isRadial){
+        const res=eraseTrianglesAt(s.mesh,ep,radius);
+        if(res==='unchanged') continue;
+        changed=true; if(!eraserUndoSaved){eraserUndoSaved=true;saveUndoState();}
+        if(res==='empty'){scene.remove(s.mesh);s.mesh.geometry?.dispose();s.mesh.material?.dispose();strokes.splice(si,1);}
         continue;
       }
-
-      // For radial fills: remove entirely on hit
-      if (s.isRadial) {
-        let hasHit = false;
-        for (const d of s.strokeData) { if (erasePos.distanceTo(d.pos) < radius) { hasHit=true; break; } }
-        if (!hasHit) continue;
-        changed = true;
-        if (!eraserUndoSaved) { eraserUndoSaved = true; saveUndoState(); }
-        scene.remove(s.mesh); s.mesh.geometry?.dispose(); s.mesh.material?.dispose();
-        strokes.splice(si, 1);
+      // Radial: remove entirely on outline hit
+      if(s.isRadial){
+        let hit=false; for(const d of s.strokeData)if(ep.distanceTo(d.pos)<radius){hit=true;break;}
+        if(!hit) continue;
+        changed=true; if(!eraserUndoSaved){eraserUndoSaved=true;saveUndoState();}
+        scene.remove(s.mesh);s.mesh.geometry?.dispose();s.mesh.material?.dispose();strokes.splice(si,1);
         continue;
       }
-
-      // For pen/brush/line strokes: split into segments
-      let hasHit = false;
-      for (const d of s.strokeData) { if (erasePos.distanceTo(d.pos) < radius) { hasHit=true; break; } }
-      if (!hasHit) continue;
-      changed = true;
-      if (!eraserUndoSaved) { eraserUndoSaved = true; saveUndoState(); }
-      scene.remove(s.mesh); s.mesh.geometry?.dispose(); s.mesh.material?.dispose();
-      strokes.splice(si, 1);
-
-      const savedSmooth = smoothLevel;
-      smoothLevel = s.smooth !== undefined ? s.smooth : savedSmooth;
-      const segments = []; let seg = [];
-      for (const d of s.strokeData) {
-        if (erasePos.distanceTo(d.pos) < radius) { if (seg.length) segments.push(seg); seg = []; }
-        else seg.push({ pos: d.pos.clone(), pressure: d.pressure });
-      }
-      if (seg.length) segments.push(seg);
-      for (const sg of segments) {
-        const mesh = buildStrokeMesh(sg, s.size, s.color, s.opacity);
-        if (mesh) { applyRenderOrder(mesh); scene.add(mesh); strokes.push({ mesh, strokeData: sg, color: s.color, size: s.size, opacity: s.opacity, isLasso: false, isRadial: false, smooth: s.smooth, drawStartAt: s.drawStartAt, createdAt: s.createdAt }); }
-      }
-      smoothLevel = savedSmooth;
+      // Pen/brush/line: point-based split
+      let hit=false; for(const d of s.strokeData)if(ep.distanceTo(d.pos)<radius){hit=true;break;}
+      if(!hit) continue;
+      changed=true; if(!eraserUndoSaved){eraserUndoSaved=true;saveUndoState();}
+      scene.remove(s.mesh);s.mesh.geometry?.dispose();s.mesh.material?.dispose();strokes.splice(si,1);
+      const sv=smoothLevel,pv=pressureEnabled;
+      smoothLevel=s.smooth??sv; pressureEnabled=s.pressureOn??pv;
+      const segs=[];let seg=[];
+      for(const d of s.strokeData){if(ep.distanceTo(d.pos)<radius){if(seg.length)segs.push(seg);seg=[];}else seg.push({pos:d.pos.clone(),pressure:d.pressure});}
+      if(seg.length)segs.push(seg);
+      for(const sg of segs){const m=buildStrokeMesh(sg,s.size,s.color,s.opacity);if(m){applyRenderOrder(m);scene.add(m);strokes.push({mesh:m,strokeData:sg,color:s.color,size:s.size,opacity:s.opacity,isLasso:false,isRadial:false,smooth:s.smooth,pressureOn:s.pressureOn,drawStartAt:s.drawStartAt,createdAt:s.createdAt});}}
+      smoothLevel=sv; pressureEnabled=pv;
     }
   }
-  if (changed) updateStatus();
+  if(changed) updateStatus();
 }
 
-// ─── UNDO ───
-function saveUndoState() {
-  undoStack.push(strokes.map(s => ({
-    strokeData: s.strokeData.map(d => ({ pos: d.pos.clone(), pressure: d.pressure })),
-    color: s.color, size: s.size, opacity: s.opacity, isLasso: !!s.isLasso, isRadial: !!s.isRadial,
-    smooth: s.smooth !== undefined ? s.smooth : smoothLevel,
-    drawStartAt: s.drawStartAt||0, createdAt: s.createdAt||0
-  })));
-  if (undoStack.length > MAX_HISTORY) undoStack.shift();
-  updateStatus();
+// ════════════════════════════════════════
+// UNDO
+// ════════════════════════════════════════
+function saveUndoState(){
+  undoStack.push(strokes.map(s=>({strokeData:s.strokeData.map(d=>({pos:d.pos.clone(),pressure:d.pressure})),color:s.color,size:s.size,opacity:s.opacity,isLasso:!!s.isLasso,isRadial:!!s.isRadial,smooth:s.smooth??smoothLevel,pressureOn:s.pressureOn??pressureEnabled,drawStartAt:s.drawStartAt||0,createdAt:s.createdAt||0})));
+  if(undoStack.length>MAX_HISTORY)undoStack.shift();updateStatus();
 }
-
-function undo() {
-  if (!undoStack.length) return;
-  strokes.forEach(s => { scene.remove(s.mesh); s.mesh.geometry?.dispose(); s.mesh.material?.dispose(); });
-  strokes = [];
-  renderOrderCounter = 0;
-  const savedSmooth = smoothLevel;
-  for (const d of undoStack.pop()) {
-    smoothLevel = d.smooth !== undefined ? d.smooth : savedSmooth;
-    let mesh;
-    if (d.isRadial) mesh = buildRadialFill(d.strokeData.map(dd=>dd.pos), d.color, d.opacity);
-    else if (d.isLasso) mesh = buildLassoFill(d.strokeData.map(dd=>dd.pos), d.color, d.opacity);
-    else mesh = buildStrokeMesh(d.strokeData, d.size, d.color, d.opacity);
-    if (mesh) { applyRenderOrder(mesh); scene.add(mesh); strokes.push({ mesh, strokeData: d.strokeData, color: d.color, size: d.size, opacity: d.opacity, isLasso: d.isLasso, isRadial: d.isRadial, smooth: d.smooth, drawStartAt: d.drawStartAt, createdAt: d.createdAt }); }
+function undo(){
+  if(!undoStack.length) return;
+  strokes.forEach(s=>{scene.remove(s.mesh);s.mesh.geometry?.dispose();s.mesh.material?.dispose();});
+  strokes=[]; renderOrderCounter=0;
+  const sv=smoothLevel,pv=pressureEnabled;
+  for(const d of undoStack.pop()){
+    smoothLevel=d.smooth??sv; pressureEnabled=d.pressureOn??pv;
+    let m; if(d.isRadial)m=buildRadialFill(d.strokeData.map(dd=>dd.pos),d.color,d.opacity);
+    else if(d.isLasso)m=buildLassoFill(d.strokeData.map(dd=>dd.pos),d.color,d.opacity);
+    else m=buildStrokeMesh(d.strokeData,d.size,d.color,d.opacity);
+    if(m){applyRenderOrder(m);scene.add(m);strokes.push({mesh:m,strokeData:d.strokeData,color:d.color,size:d.size,opacity:d.opacity,isLasso:d.isLasso,isRadial:d.isRadial,smooth:d.smooth,pressureOn:d.pressureOn,drawStartAt:d.drawStartAt,createdAt:d.createdAt});}
   }
-  smoothLevel = savedSmooth;
-  updateStatus();
+  smoothLevel=sv; pressureEnabled=pv; updateStatus();
 }
 
-// ─── INPUT HELPERS ───
-function getWorldPos(e) {
-  const rect = renderer.domElement.getBoundingClientRect();
-  mouse.x = ((e.clientX-rect.left)/rect.width)*2-1;
-  mouse.y = -((e.clientY-rect.top)/rect.height)*2+1;
-  raycaster.setFromCamera(mouse, camera);
-  const t = new THREE.Vector3(); raycaster.ray.intersectPlane(drawPlane, t); return t;
-}
-function getPressure(e) {
-  if (e.pointerType==='pen') { if (!penDetected) { penDetected=true; showToast('Pen tablet detected'); } return e.pressure; }
-  return 0.5;
-}
-function updatePenInfo(e) {
-  const el = document.getElementById('pen-info');
-  if (e.pointerType==='pen') el.innerHTML = `<span class="detected">pen</span> p:${e.pressure.toFixed(2)} tilt:${e.tiltX||0}°,${e.tiltY||0}°`;
-  else el.textContent = penDetected ? `pen ok | ${e.pointerType}` : '';
-}
-function addSample(e) {
-  const pos = getWorldPos(e), pressure = getPressure(e);
-  const last = currentStrokeData[currentStrokeData.length-1];
-  if (last && pos.distanceTo(last.pos) < 0.5) return;
-  currentStrokeData.push({ pos, pressure });
-}
+// ════════════════════════════════════════
+// INPUT HELPERS
+// ════════════════════════════════════════
+function getWorldPos(e){const r=renderer.domElement.getBoundingClientRect();mouse.x=((e.clientX-r.left)/r.width)*2-1;mouse.y=-((e.clientY-r.top)/r.height)*2+1;raycaster.setFromCamera(mouse,camera);const t=new THREE.Vector3();raycaster.ray.intersectPlane(drawPlane,t);return t;}
+function getPressure(e){if(e.pointerType==='pen'){if(!penDetected){penDetected=true;showToast('Pen tablet detected');}return e.pressure;}return .5;}
+function updatePenInfo(e){const el=document.getElementById('pen-info');if(e.pointerType==='pen')el.innerHTML=`<span class="detected">pen</span> p:${e.pressure.toFixed(2)} tilt:${e.tiltX||0}°,${e.tiltY||0}°`;else el.textContent=penDetected?`pen ok | ${e.pointerType}`:'';}
+function addSample(e){const pos=getWorldPos(e),pressure=getPressure(e),last=currentStrokeData[currentStrokeData.length-1];if(last&&pos.distanceTo(last.pos)<.5)return;currentStrokeData.push({pos,pressure});}
 
-// ─── COMMIT HELPERS ───
-let renderOrderCounter = 0;
-
-function applyRenderOrder(mesh) {
-  mesh.renderOrder = renderOrderCounter++;
-}
-
-function commitStroke(strokeData, color, size, opacity, isLasso, isRadial) {
-  const now = Date.now();
-  const strokeSmooth = smoothLevel; // capture at draw time
+// ════════════════════════════════════════
+// COMMIT
+// ════════════════════════════════════════
+function commitStroke(data,color,size,opacity,isLasso,isRadial){
+  const now=Date.now(),sm=smoothLevel,pr=pressureEnabled;
   let mesh;
-  if (isRadial) mesh = buildRadialFill(strokeData.map(d=>d.pos), color, opacity);
-  else if (isLasso) mesh = buildLassoFill(strokeData.map(d=>d.pos), color, opacity);
-  else mesh = buildStrokeMesh(strokeData, size, color, opacity);
-  if (!mesh) return;
-  applyRenderOrder(mesh);
-  scene.add(mesh);
-  strokes.push({ mesh, strokeData, color, size, opacity, isLasso: !!isLasso, isRadial: !!isRadial, smooth: strokeSmooth, drawStartAt: currentStrokeStart, createdAt: now });
-
-  if (symmetryEnabled) {
-    let mirrorData, mirrorMesh;
-    const mirPts = mirrorPoints(strokeData.map(d=>d.pos));
-    mirrorData = mirPts.map(p => ({ pos: p, pressure: 0.5 }));
-    if (isRadial) mirrorMesh = buildRadialFill(mirPts, color, opacity);
-    else if (isLasso) mirrorMesh = buildLassoFill(mirPts, color, opacity);
-    else { mirrorData = mirrorStrokeData(strokeData); mirrorMesh = buildStrokeMesh(mirrorData, size, color, opacity); }
-    if (mirrorMesh) { applyRenderOrder(mirrorMesh); scene.add(mirrorMesh); strokes.push({ mesh: mirrorMesh, strokeData: mirrorData, color, size, opacity, isLasso: !!isLasso, isRadial: !!isRadial, smooth: strokeSmooth, drawStartAt: currentStrokeStart, createdAt: now }); }
+  if(isRadial)mesh=buildRadialFill(data.map(d=>d.pos),color,opacity);
+  else if(isLasso)mesh=buildLassoFill(data.map(d=>d.pos),color,opacity);
+  else mesh=buildStrokeMesh(data,size,color,opacity);
+  if(!mesh)return;
+  applyRenderOrder(mesh);scene.add(mesh);
+  strokes.push({mesh,strokeData:data,color,size,opacity,isLasso:!!isLasso,isRadial:!!isRadial,smooth:sm,pressureOn:pr,drawStartAt:currentStrokeStart,createdAt:now});
+  if(symmetryEnabled){
+    let md,mm;
+    if(isRadial){const mp=mirrorPoints(data.map(d=>d.pos));md=mp.map(p=>({pos:p,pressure:.5}));mm=buildRadialFill(mp,color,opacity);}
+    else if(isLasso){const mp=mirrorPoints(data.map(d=>d.pos));md=mp.map(p=>({pos:p,pressure:.5}));mm=buildLassoFill(mp,color,opacity);}
+    else{md=mirrorStrokeData(data);mm=buildStrokeMesh(md,size,color,opacity);}
+    if(mm){applyRenderOrder(mm);scene.add(mm);strokes.push({mesh:mm,strokeData:md,color,size,opacity,isLasso:!!isLasso,isRadial:!!isRadial,smooth:sm,pressureOn:pr,drawStartAt:currentStrokeStart,createdAt:now});}
   }
 }
 
-// ─── REFERENCE IMAGES ───
-function addRefImage(blobUrl) {
-  const img = new Image();
-  img.onload = () => {
-    // Scale to fit ~40% of viewport
-    const maxDim = Math.min(window.innerWidth, window.innerHeight) * 0.4;
-    const scale = maxDim / Math.max(img.width, img.height);
-    const w = img.width * scale, h = img.height * scale;
-
-    const texture = new THREE.Texture(img);
-    texture.needsUpdate = true;
-    const geo = new THREE.PlaneGeometry(w, h);
-    const mat = new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.renderOrder = REF_BASE_RENDER_ORDER + refImages.length;
-    mesh.userData.refWidth = w;
-    mesh.userData.refHeight = h;
+// ════════════════════════════════════════
+// REFERENCE IMAGES
+// ════════════════════════════════════════
+function addRefImage(blobUrl){
+  const img=new Image();
+  img.onload=()=>{
+    const maxDim=Math.min(window.innerWidth,window.innerHeight)*.4;
+    const scale=maxDim/Math.max(img.width,img.height);
+    const w=img.width*scale,h=img.height*scale;
+    const tex=new THREE.Texture(img);tex.needsUpdate=true;
+    const geo=new THREE.PlaneGeometry(w,h);
+    const mat=new THREE.MeshBasicMaterial({map:tex,transparent:true,depthTest:false,depthWrite:false,side:THREE.DoubleSide});
+    const mesh=new THREE.Mesh(geo,mat);
+    mesh.renderOrder=REF_RENDER_ORDER+refImages.length;
+    mesh.userData.refWidth=w;mesh.userData.refHeight=h;
     scene.add(mesh);
-
-    // Close button (HTML overlay)
-    const closeBtn = document.createElement('div');
-    closeBtn.className = 'ref-close';
-    closeBtn.innerHTML = '×';
-    document.body.appendChild(closeBtn);
-
-    // Border indicator
-    const borderEl = document.createElement('div');
-    borderEl.className = 'ref-border';
-    document.body.appendChild(borderEl);
-
-    const ref = { mesh, closeBtn, borderEl, blobUrl, texture };
-    refImages.push(ref);
-    updateRefOverlays();
-
-    closeBtn.addEventListener('click', e => {
-      e.stopPropagation();
-      removeRefImage(ref);
-    });
-
+    const closeBtn=document.createElement('div');closeBtn.className='ref-close';closeBtn.innerHTML='×';document.body.appendChild(closeBtn);
+    const borderEl=document.createElement('div');borderEl.className='ref-border';document.body.appendChild(borderEl);
+    const ref={mesh,closeBtn,borderEl,blobUrl,texture:tex};
+    refImages.push(ref); updateRefOverlays();
+    closeBtn.addEventListener('click',e=>{e.stopPropagation();removeRefImage(ref);});
     showToast('Image pasted — drag to move, scroll to resize');
   };
-  img.src = blobUrl;
+  img.src=blobUrl;
 }
-
-function removeRefImage(ref) {
-  scene.remove(ref.mesh);
-  ref.mesh.geometry.dispose();
-  ref.mesh.material.dispose();
-  ref.texture.dispose();
-  ref.closeBtn.remove();
-  ref.borderEl.remove();
-  URL.revokeObjectURL(ref.blobUrl);
-  refImages = refImages.filter(r => r !== ref);
-}
-
-function updateRefOverlays() {
-  for (const ref of refImages) {
-    const mesh = ref.mesh;
-    const hw = mesh.userData.refWidth * mesh.scale.x / 2;
-    const hh = mesh.userData.refHeight * mesh.scale.y / 2;
-
-    const tr = worldToScreen(new THREE.Vector3(mesh.position.x + hw, mesh.position.y + hh, 0));
-    ref.closeBtn.style.left = tr.x + 'px';
-    ref.closeBtn.style.top = tr.y + 'px';
-    ref.closeBtn.style.display = refsLocked ? 'none' : 'flex';
-
-    const tl = worldToScreen(new THREE.Vector3(mesh.position.x - hw, mesh.position.y + hh, 0));
-    const br = worldToScreen(new THREE.Vector3(mesh.position.x + hw, mesh.position.y - hh, 0));
-    const isActive = draggingRef === ref;
-    ref.borderEl.style.display = isActive ? 'block' : 'none';
-    ref.borderEl.style.left = tl.x + 'px';
-    ref.borderEl.style.top = tl.y + 'px';
-    ref.borderEl.style.width = (br.x - tl.x) + 'px';
-    ref.borderEl.style.height = (br.y - tl.y) + 'px';
+function removeRefImage(ref){scene.remove(ref.mesh);ref.mesh.geometry.dispose();ref.mesh.material.dispose();ref.texture.dispose();ref.closeBtn.remove();ref.borderEl.remove();URL.revokeObjectURL(ref.blobUrl);refImages=refImages.filter(r=>r!==ref);}
+function updateRefOverlays(){
+  for(const ref of refImages){
+    const m=ref.mesh,hw=m.userData.refWidth*m.scale.x/2,hh=m.userData.refHeight*m.scale.y/2;
+    const tr=worldToScreen(new THREE.Vector3(m.position.x+hw,m.position.y+hh,0));
+    ref.closeBtn.style.left=tr.x+'px';ref.closeBtn.style.top=tr.y+'px';
+    ref.closeBtn.style.display=refsLocked?'none':'flex';
+    const tl=worldToScreen(new THREE.Vector3(m.position.x-hw,m.position.y+hh,0));
+    const br=worldToScreen(new THREE.Vector3(m.position.x+hw,m.position.y-hh,0));
+    ref.borderEl.style.display=draggingRef===ref?'block':'none';
+    ref.borderEl.style.left=tl.x+'px';ref.borderEl.style.top=tl.y+'px';ref.borderEl.style.width=(br.x-tl.x)+'px';ref.borderEl.style.height=(br.y-tl.y)+'px';
   }
 }
+function hitTestRef(wp){if(refsLocked)return null;for(let i=refImages.length-1;i>=0;i--){const r=refImages[i],m=r.mesh,hw=m.userData.refWidth*m.scale.x/2,hh=m.userData.refHeight*m.scale.y/2;if(wp.x>=m.position.x-hw&&wp.x<=m.position.x+hw&&wp.y>=m.position.y-hh&&wp.y<=m.position.y+hh)return r;}return null;}
+function hideRefs(){refImages.forEach(r=>{r.mesh.visible=false;r.closeBtn.style.display='none';r.borderEl.style.display='none';});}
+function showRefs(){refImages.forEach(r=>{r.mesh.visible=true;r.closeBtn.style.display=refsLocked?'none':'flex';});updateRefOverlays();}
 
-function hitTestRef(worldPos) {
-  if (refsLocked) return null;
-  for (let i = refImages.length - 1; i >= 0; i--) {
-    const ref = refImages[i];
-    const m = ref.mesh;
-    const hw = m.userData.refWidth * m.scale.x / 2;
-    const hh = m.userData.refHeight * m.scale.y / 2;
-    if (worldPos.x >= m.position.x - hw && worldPos.x <= m.position.x + hw &&
-        worldPos.y >= m.position.y - hh && worldPos.y <= m.position.y + hh) {
-      return ref;
-    }
-  }
-  return null;
-}
+document.addEventListener('paste',e=>{if(isExporting)return;const items=e.clipboardData?.items;if(!items)return;for(const item of items){if(item.type.startsWith('image/')){e.preventDefault();const f=item.getAsFile();if(f)addRefImage(URL.createObjectURL(f));return;}}});
+renderer.domElement.addEventListener('wheel',e=>{if(refsLocked)return;const pos=getWorldPos(e);const ref=hitTestRef(pos);if(ref){e.preventDefault();const d=e.deltaY>0?.92:1.08;const ns=Math.max(.1,Math.min(5,ref.mesh.scale.x*d));ref.mesh.scale.set(ns,ns,1);updateRefOverlays();}},{passive:false});
 
-// Paste listener
-document.addEventListener('paste', e => {
-  if (isExporting) return;
-  const items = e.clipboardData?.items;
-  if (!items) return;
-  for (const item of items) {
-    if (item.type.startsWith('image/')) {
-      e.preventDefault();
-      const file = item.getAsFile();
-      if (file) addRefImage(URL.createObjectURL(file));
-      return;
-    }
-  }
+// ════════════════════════════════════════
+// POINTER EVENTS
+// ════════════════════════════════════════
+renderer.domElement.addEventListener('pointerdown',e=>{
+  if(e.button!==0||isExporting)return;
+  if(penDetected&&e.pointerType==='touch')return;
+  updatePenInfo(e);updateEraserCursor(e);
+  const pos=getWorldPos(e);
+  const hitRef=hitTestRef(pos);
+  if(hitRef&&currentTool!=='eraser'){draggingRef=hitRef;dragRefOffset=new THREE.Vector3().subVectors(hitRef.mesh.position,pos);renderer.domElement.setPointerCapture(e.pointerId);renderer.domElement.style.cursor='move';hitRef.borderEl.style.display='block';return;}
+  isDrawing=true;currentStrokeStart=Date.now();if(!timelineEpoch)timelineEpoch=currentStrokeStart;
+  if(currentTool==='eraser'){eraserUndoSaved=false;eraseAt(pos,eraserSize);return;}
+  if(currentTool==='lasso'||currentTool==='gradient'||currentTool==='radial'){lassoPoints=[pos];renderer.domElement.setPointerCapture(e.pointerId);return;}
+  if(currentTool==='line'){lineStart=pos;renderer.domElement.setPointerCapture(e.pointerId);return;}
+  saveUndoState();currentStrokeData=[{pos,pressure:getPressure(e)}];renderer.domElement.setPointerCapture(e.pointerId);
 });
 
-// Scroll to resize ref images
-renderer.domElement.addEventListener('wheel', e => {
-  if (refsLocked) return;
-  const pos = getWorldPos(e);
-  const ref = hitTestRef(pos);
-  if (ref) {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.92 : 1.08;
-    const newScale = Math.max(0.1, Math.min(5, ref.mesh.scale.x * delta));
-    ref.mesh.scale.set(newScale, newScale, 1);
-    updateRefOverlays();
-  }
-}, { passive: false });
-
-function hideRefs() { refImages.forEach(r => { r.mesh.visible = false; r.closeBtn.style.display = 'none'; r.borderEl.style.display = 'none'; }); }
-function showRefs() { refImages.forEach(r => { r.mesh.visible = true; r.closeBtn.style.display = 'flex'; }); updateRefOverlays(); }
-
-// ─── POINTER EVENTS ───
-renderer.domElement.addEventListener('pointerdown', e => {
-  if (e.button !== 0 || isExporting) return;
-  if (penDetected && e.pointerType === 'touch') return;
-  updatePenInfo(e); updateEraserCursor(e);
-  const pos = getWorldPos(e);
-
-  // Check for ref image hit first
-  const hitRef = hitTestRef(pos);
-  if (hitRef && currentTool !== 'eraser') {
-    draggingRef = hitRef;
-    dragRefOffset = new THREE.Vector3().subVectors(hitRef.mesh.position, pos);
-    renderer.domElement.setPointerCapture(e.pointerId);
-    renderer.domElement.style.cursor = 'move';
-    hitRef.borderEl.style.display = 'block';
-    return;
-  }
-
-  isDrawing = true;
-  currentStrokeStart = Date.now();
-  if (!timelineEpoch) timelineEpoch = currentStrokeStart;
-
-  if (currentTool === 'eraser') { eraserUndoSaved = false; eraseAt(pos, eraserSize); return; }
-  if (currentTool === 'lasso' || currentTool === 'gradient' || currentTool === 'radial') { lassoPoints = [pos]; renderer.domElement.setPointerCapture(e.pointerId); return; }
-  if (currentTool === 'line') { lineStart = pos; renderer.domElement.setPointerCapture(e.pointerId); return; }
-
-  // pen or brush
-  saveUndoState();
-  currentStrokeData = [{ pos, pressure: getPressure(e) }];
-  renderer.domElement.setPointerCapture(e.pointerId);
-});
-
-renderer.domElement.addEventListener('pointermove', e => {
-  updatePenInfo(e); updateEraserCursor(e);
-  if (penDetected && e.pointerType === 'touch') return;
-
-  // Dragging ref image
-  if (draggingRef) {
-    const pos = getWorldPos(e);
-    draggingRef.mesh.position.set(pos.x + dragRefOffset.x, pos.y + dragRefOffset.y, 0);
-    updateRefOverlays();
-    return;
-  }
-
-  if (!isDrawing) return;
-
-  if (currentTool === 'eraser') { eraseAt(getWorldPos(e), eraserSize); return; }
-  if (currentTool === 'lasso' || currentTool === 'gradient' || currentTool === 'radial') {
-    const pos = getWorldPos(e), last = lassoPoints[lassoPoints.length-1];
-    if (pos.distanceTo(last) >= 3) { lassoPoints.push(pos); updateLassoPreview(currentTool==='gradient'||currentTool==='radial'); }
-    return;
-  }
-  if (currentTool === 'line' && lineStart) {
-    clearPreviews();
-    const pos = getWorldPos(e);
-    const lineData = [
-      { pos: lineStart.clone(), pressure: 0.5 },
-      { pos: pos, pressure: 0.5 }
-    ];
-    previewMesh = buildRibbonMesh(lineData, brushSize, currentColor, { opacity: 0.5, transparent: true });
-    if (previewMesh) scene.add(previewMesh);
-    if (symmetryEnabled) {
-      const mirData = mirrorStrokeData(lineData);
-      mirrorPreviewMesh = buildRibbonMesh(mirData, brushSize, currentColor, { opacity: 0.5, transparent: true });
-      if (mirrorPreviewMesh) scene.add(mirrorPreviewMesh);
-    }
-    return;
-  }
-
-  if (e.getCoalescedEvents) { for (const ce of e.getCoalescedEvents()) addSample(ce); }
-  else addSample(e);
+renderer.domElement.addEventListener('pointermove',e=>{
+  updatePenInfo(e);updateEraserCursor(e);
+  if(penDetected&&e.pointerType==='touch')return;
+  if(draggingRef){const pos=getWorldPos(e);draggingRef.mesh.position.set(pos.x+dragRefOffset.x,pos.y+dragRefOffset.y,0);updateRefOverlays();return;}
+  if(!isDrawing)return;
+  if(currentTool==='eraser'){eraseAt(getWorldPos(e),eraserSize);return;}
+  if(currentTool==='lasso'||currentTool==='gradient'||currentTool==='radial'){const pos=getWorldPos(e),last=lassoPoints[lassoPoints.length-1];if(pos.distanceTo(last)>=3){lassoPoints.push(pos);updateLassoPreview(currentTool==='gradient'||currentTool==='radial');}return;}
+  if(currentTool==='line'&&lineStart){clearPreviews();const pos=getWorldPos(e);const ld=[{pos:lineStart.clone(),pressure:.5},{pos,pressure:.5}];previewMesh=buildRibbonMesh(ld,brushSize,currentColor,{opacity:.5});if(previewMesh)scene.add(previewMesh);if(symmetryEnabled){mirrorPreviewMesh=buildRibbonMesh(mirrorStrokeData(ld),brushSize,currentColor,{opacity:.5});if(mirrorPreviewMesh)scene.add(mirrorPreviewMesh);}return;}
+  if(e.getCoalescedEvents){for(const ce of e.getCoalescedEvents())addSample(ce);}else addSample(e);
   updateStrokePreview();
 });
 
-renderer.domElement.addEventListener('pointerup', e => {
-  // End ref image drag
-  if (draggingRef) {
-    draggingRef.borderEl.style.display = 'none';
-    draggingRef = null;
-    dragRefOffset = null;
-    renderer.domElement.style.cursor = currentTool === 'eraser' ? 'none' : 'crosshair';
-    return;
-  }
-
-  if (!isDrawing) return;
-  if (penDetected && e.pointerType === 'touch') return;
-  isDrawing = false; eraserUndoSaved = false;
-
-  if (currentTool === 'eraser') return;
-
+renderer.domElement.addEventListener('pointerup',e=>{
+  if(draggingRef){draggingRef.borderEl.style.display='none';draggingRef=null;dragRefOffset=null;renderer.domElement.style.cursor=currentTool==='eraser'?'none':'crosshair';return;}
+  if(!isDrawing)return;if(penDetected&&e.pointerType==='touch')return;
+  isDrawing=false;eraserUndoSaved=false;
+  if(currentTool==='eraser')return;
   clearPreviews();
-
-  if (currentTool === 'line' && lineStart) {
-    const pos = getWorldPos(e);
-    if (lineStart.distanceTo(pos) > 2) {
-      saveUndoState();
-      // Generate intermediate points for a clean line with eraser compatibility
-      const steps = Math.max(2, Math.ceil(lineStart.distanceTo(pos) / 2));
-      const lineData = [];
-      for (let i = 0; i <= steps; i++) {
-        const t = i / steps;
-        lineData.push({
-          pos: new THREE.Vector3(
-            lineStart.x + (pos.x - lineStart.x) * t,
-            lineStart.y + (pos.y - lineStart.y) * t, 0),
-          pressure: 0.5
-        });
-      }
-      commitStroke(lineData, currentColor, brushSize, 1, false);
-    }
-    lineStart = null;
-    updateStatus(); return;
-  }
-
-  if (currentTool === 'lasso' || currentTool === 'gradient' || currentTool === 'radial') {
-    if (lassoPoints.length >= 3) {
-      saveUndoState();
-      const opacity = currentTool === 'gradient' ? 0.3 : currentTool === 'radial' ? 0.45 : 1;
-      let data = lassoPoints.map(p => ({ pos: p.clone(), pressure: 0.5 }));
-      // Smooth the outline for lasso/gradient (not radial — shader handles its own shape)
-      if (smoothLevel > 0 && currentTool !== 'radial') {
-        data = smoothStrokeData(data);
-      }
-      commitStroke(data, currentColor, 0, opacity, true, currentTool === 'radial');
-    }
-    lassoPoints = [];
-    updateStatus(); return;
-  }
-
-  // pen or brush
-  if (!currentStrokeData.length) return;
-  commitStroke([...currentStrokeData], currentColor, getActiveSize(), 1, false);
-  currentStrokeData = [];
-  updateStatus();
+  if(currentTool==='line'&&lineStart){const pos=getWorldPos(e);if(lineStart.distanceTo(pos)>2){saveUndoState();const steps=Math.max(2,Math.ceil(lineStart.distanceTo(pos)/2));const ld=[];for(let i=0;i<=steps;i++){const t=i/steps;ld.push({pos:new THREE.Vector3(lineStart.x+(pos.x-lineStart.x)*t,lineStart.y+(pos.y-lineStart.y)*t,0),pressure:.5});}commitStroke(ld,currentColor,brushSize,1,false);}lineStart=null;updateStatus();return;}
+  if(currentTool==='lasso'||currentTool==='gradient'||currentTool==='radial'){if(lassoPoints.length>=3){saveUndoState();const op=currentTool==='gradient'?.3:currentTool==='radial'?.45:1;let data=lassoPoints.map(p=>({pos:p.clone(),pressure:.5}));if(smoothLevel>0&&currentTool!=='radial')data=smoothStrokeData(data);commitStroke(data,currentColor,0,op,true,currentTool==='radial');}lassoPoints=[];updateStatus();return;}
+  if(!currentStrokeData.length)return;
+  commitStroke([...currentStrokeData],currentColor,getActiveSize(),1,false);currentStrokeData=[];updateStatus();
 });
 
-renderer.domElement.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
-renderer.domElement.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
-document.addEventListener('pointermove', e => updateEraserCursor(e));
+renderer.domElement.addEventListener('touchstart',e=>e.preventDefault(),{passive:false});
+renderer.domElement.addEventListener('touchmove',e=>e.preventDefault(),{passive:false});
+document.addEventListener('pointermove',e=>updateEraserCursor(e));
 
-// ─── KEYBOARD ───
-window.addEventListener('keydown', e => {
-  if (e.target.tagName === 'INPUT') return;
-  if ((e.ctrlKey||e.metaKey) && e.key==='z') { e.preventDefault(); undo(); }
-  if (e.key==='p') setTool('pen');
-  if (e.key==='b') setTool('brush');
-  if (e.key==='n') setTool('line');
-  if (e.key==='e') setTool('eraser');
-  if (e.key==='l') setTool('lasso');
-  if (e.key==='g') setTool('gradient');
-  if (e.key==='r') setTool('radial');
-  if (e.key==='`'||e.key==='~') setTool(currentTool==='eraser'?'pen':'eraser');
-  if (e.key==='t') togglePressure();
-  if (e.key==='s'&&!e.ctrlKey&&!e.metaKey) toggleSmoothing();
-  if (e.key==='m') toggleSymmetry();
-  if (e.key==='h') toggleUI();
-  if (e.key==='f') toggleRefLock();
-  if (e.key==='i') toggleInfo();
-  if (e.key==='[') { adjustSize(-1); }
-  if (e.key===']') { adjustSize(1); }
+// ════════════════════════════════════════
+// KEYBOARD
+// ════════════════════════════════════════
+window.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT')return;
+  if((e.ctrlKey||e.metaKey)&&e.key==='z'){e.preventDefault();undo();}
+  if(e.key==='p')setTool('pen');
+  if(e.key==='b')setTool('brush');
+  if(e.key==='n')setTool('line');
+  if(e.key==='e')setTool('eraser');
+  if(e.key==='l')setTool('lasso');
+  if(e.key==='g')setTool('gradient');
+  if(e.key==='r')setTool('radial');
+  if(e.key==='`'||e.key==='~')setTool(currentTool==='eraser'?'pen':'eraser');
+  if(e.key==='t')togglePressure();
+  if(e.key==='s'&&!e.ctrlKey&&!e.metaKey)toggleSmoothing();
+  if(e.key==='m')toggleSymmetry();
+  if(e.key==='h')toggleUI();
+  if(e.key==='f')toggleRefLock();
+  if(e.key==='i')toggleInfo();
+  if(e.key==='[')adjustSize(-1);
+  if(e.key===']')adjustSize(1);
 });
 
-function adjustSize(delta) {
-  if (currentTool==='pen') { penSize = Math.max(1, Math.min(5, penSize+delta)); }
-  else if (currentTool==='brush' || currentTool==='line') { brushSize = Math.max(1, Math.min(20, brushSize+delta)); }
-  else if (currentTool==='eraser') { eraserSize = Math.max(2, Math.min(80, eraserSize+delta)); }
-  syncSizeUI();
-}
+function adjustSize(d){if(currentTool==='pen')penSize=Math.max(1,Math.min(5,penSize+d));else if(currentTool==='brush'||currentTool==='line')brushSize=Math.max(1,Math.min(20,brushSize+d));else if(currentTool==='eraser')eraserSize=Math.max(2,Math.min(80,eraserSize+d));syncSizeUI();}
 
-// ─── TOOLBAR ───
-const swatchContainer = document.getElementById('swatches');
-PALETTE.forEach(c => {
-  const el = document.createElement('div');
-  const isWhite = c === '#ffffff';
-  el.className = 'color-swatch' + (c===currentColor?' active':'') + (isWhite?' white-swatch':'');
-  el.style.background = c;
-  el.addEventListener('click', () => {
-    currentColor = c;
-    document.getElementById('color-picker').value = c;
-    document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
-    el.classList.add('active');
-  });
-  swatchContainer.appendChild(el);
+// ════════════════════════════════════════
+// TOOLBAR UI
+// ════════════════════════════════════════
+const swatchContainer=document.getElementById('swatches');
+PALETTE.forEach(c=>{const el=document.createElement('div');el.className='color-swatch'+(c===currentColor?' active':'')+(c==='#ffffff'?' white-swatch':'');el.style.background=c;el.addEventListener('click',()=>{currentColor=c;document.getElementById('color-picker').value=c;document.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('active'));el.classList.add('active');});swatchContainer.appendChild(el);});
+document.getElementById('color-picker').addEventListener('input',e=>{currentColor=e.target.value;document.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('active'));});
+
+const sizeSlider=document.getElementById('size-slider'),sizeVal=document.getElementById('size-val');
+sizeSlider.addEventListener('input',()=>{const v=parseInt(sizeSlider.value);if(currentTool==='pen')penSize=v;else if(currentTool==='brush'||currentTool==='line')brushSize=v;else if(currentTool==='eraser')eraserSize=v;sizeVal.textContent=v;});
+function syncSizeUI(){let min,max,val;if(currentTool==='pen'){min=1;max=5;val=penSize;}else if(currentTool==='brush'||currentTool==='line'){min=1;max=20;val=brushSize;}else if(currentTool==='eraser'){min=2;max=80;val=eraserSize;}else{min=1;max=5;val=1;}sizeSlider.min=min;sizeSlider.max=max;sizeSlider.value=val;sizeVal.textContent=val;}
+
+function setTool(tool){currentTool=tool;['pen','brush','line','eraser','lasso','gradient','radial'].forEach(t=>document.getElementById('btn-'+t).classList.toggle('active',t===tool));renderer.domElement.style.cursor=tool==='eraser'?'none':'crosshair';eraserCursorEl.style.display=tool==='eraser'?'block':'none';syncSizeUI();}
+
+function togglePressure(){pressureEnabled=!pressureEnabled;document.getElementById('btn-pressure').classList.toggle('toggle-on',pressureEnabled);showToast(pressureEnabled?'Pressure ON':'Pressure OFF');}
+function toggleSmoothing(){smoothLevel=(smoothLevel+1)%4;const btn=document.getElementById('btn-stabilize');btn.classList.toggle('toggle-on',smoothLevel>0);btn.textContent=['S·off','S1','S2','S3'][smoothLevel];showToast(smoothLevel?`Smooth ${smoothLevel}`:'Smoothing OFF');}
+function toggleSymmetry(){symmetryEnabled=!symmetryEnabled;document.getElementById('btn-symmetry').classList.toggle('toggle-on',symmetryEnabled);updateSymmetryOverlay();showToast(symmetryEnabled?'Mirror ON':'Mirror OFF');}
+
+let uiHidden=false;
+function toggleUI(){uiHidden=!uiHidden;[document.querySelector('.toolbar'),document.getElementById('status'),document.getElementById('pen-info'),document.getElementById('info-btn')].forEach(el=>{if(el)el.style.display=uiHidden?'none':'';});if(uiHidden)showToast('UI hidden — press H');}
+function toggleRefLock(){refsLocked=!refsLocked;refImages.forEach(r=>{r.mesh.material.opacity=refsLocked?.35:1;});updateRefOverlays();showToast(refsLocked?'Refs locked — trace (F)':'Refs unlocked');}
+function toggleInfo(){const ov=document.getElementById('info-overlay');ov.style.display=ov.style.display==='flex'?'none':'flex';}
+
+document.getElementById('info-btn').addEventListener('click',toggleInfo);
+document.getElementById('info-close').addEventListener('click',()=>document.getElementById('info-overlay').style.display='none');
+document.getElementById('info-overlay').addEventListener('click',e=>{if(e.target.id==='info-overlay')e.target.style.display='none';});
+
+['pen','brush','line','eraser','lasso','gradient','radial'].forEach(t=>document.getElementById('btn-'+t).addEventListener('click',()=>setTool(t)));
+document.getElementById('btn-undo').addEventListener('click',undo);
+document.getElementById('btn-pressure').addEventListener('click',togglePressure);
+document.getElementById('btn-stabilize').addEventListener('click',toggleSmoothing);
+document.getElementById('btn-symmetry').addEventListener('click',toggleSymmetry);
+
+// ════════════════════════════════════════
+// CLEAR
+// ════════════════════════════════════════
+document.getElementById('btn-clear').addEventListener('click',()=>{
+  if(!strokes.length)return;saveUndoState();
+  const refMeshes=new Set(refImages.map(r=>r.mesh));
+  for(let i=scene.children.length-1;i>=0;i--){const c=scene.children[i];if(refMeshes.has(c))continue;scene.remove(c);c.geometry?.dispose();c.material?.dispose();}
+  strokes=[];renderOrderCounter=0;clearPreviews();updateStatus();
 });
 
-document.getElementById('color-picker').addEventListener('input', e => {
-  currentColor = e.target.value;
-  document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
-});
+// ════════════════════════════════════════
+// EXPORT PNG
+// ════════════════════════════════════════
+document.getElementById('btn-png').addEventListener('click',()=>{hideRefs();renderer.render(scene,camera);const a=document.createElement('a');a.href=renderer.domElement.toDataURL('image/png');a.download='nib-sketch.png';a.click();showRefs();showToast('PNG exported');});
 
-const sizeSlider = document.getElementById('size-slider');
-const sizeVal = document.getElementById('size-val');
-sizeSlider.addEventListener('input', () => {
-  const v = parseInt(sizeSlider.value);
-  if (currentTool==='pen') penSize = v;
-  else if (currentTool==='brush' || currentTool==='line') brushSize = v;
-  else if (currentTool==='eraser') eraserSize = v;
-  sizeVal.textContent = v;
-});
-
-function syncSizeUI() {
-  let min, max, val;
-  if (currentTool==='pen') { min=1; max=5; val=penSize; }
-  else if (currentTool==='brush' || currentTool==='line') { min=1; max=20; val=brushSize; }
-  else if (currentTool==='eraser') { min=2; max=80; val=eraserSize; }
-  else { min=1; max=5; val=1; }
-  sizeSlider.min = min; sizeSlider.max = max; sizeSlider.value = val; sizeVal.textContent = val;
-}
-
-function setTool(tool) {
-  currentTool = tool;
-  ['pen','brush','line','eraser','lasso','gradient','radial'].forEach(t => document.getElementById('btn-'+t).classList.toggle('active', t===tool));
-  renderer.domElement.style.cursor = tool==='eraser'?'none':'crosshair';
-  eraserCursorEl.style.display = tool==='eraser'?'block':'none';
-  syncSizeUI();
-}
-
-function togglePressure() { pressureEnabled=!pressureEnabled; document.getElementById('btn-pressure').classList.toggle('toggle-on', pressureEnabled); showToast(pressureEnabled?'Pressure ON':'Pressure OFF'); }
-function toggleSmoothing() {
-  smoothLevel = (smoothLevel + 1) % 4;
-  const btn = document.getElementById('btn-stabilize');
-  btn.classList.toggle('toggle-on', smoothLevel > 0);
-  btn.textContent = ['S·off','S1','S2','S3'][smoothLevel];
-  showToast(smoothLevel === 0 ? 'Smoothing OFF' : `Smoothing level ${smoothLevel}`);
-}
-function toggleSymmetry() { symmetryEnabled=!symmetryEnabled; document.getElementById('btn-symmetry').classList.toggle('toggle-on', symmetryEnabled); updateSymmetryOverlay(); showToast(symmetryEnabled?'Mirror ON':'Mirror OFF'); }
-
-let uiHidden = false;
-function toggleUI() {
-  uiHidden = !uiHidden;
-  const els = [document.querySelector('.toolbar'), document.getElementById('status'), document.getElementById('pen-info'), document.getElementById('info-btn')];
-  els.forEach(el => { if (el) el.style.display = uiHidden ? 'none' : ''; });
-  if (uiHidden) showToast('UI hidden — press H to show');
-}
-
-function toggleRefLock() {
-  refsLocked = !refsLocked;
-  // Make refs semi-transparent when locked so you can trace through them
-  refImages.forEach(r => { r.mesh.material.opacity = refsLocked ? 0.35 : 1; });
-  updateRefOverlays();
-  showToast(refsLocked ? 'Refs locked — trace mode (F to unlock)' : 'Refs unlocked');
-}
-
-function toggleInfo() {
-  const ov = document.getElementById('info-overlay');
-  ov.style.display = ov.style.display === 'flex' ? 'none' : 'flex';
-}
-document.getElementById('info-btn').addEventListener('click', toggleInfo);
-document.getElementById('info-close').addEventListener('click', () => { document.getElementById('info-overlay').style.display = 'none'; });
-document.getElementById('info-overlay').addEventListener('click', e => { if (e.target.id === 'info-overlay') e.target.style.display = 'none'; });
-
-document.getElementById('btn-pen').addEventListener('click', () => setTool('pen'));
-document.getElementById('btn-brush').addEventListener('click', () => setTool('brush'));
-document.getElementById('btn-line').addEventListener('click', () => setTool('line'));
-document.getElementById('btn-eraser').addEventListener('click', () => setTool('eraser'));
-document.getElementById('btn-lasso').addEventListener('click', () => setTool('lasso'));
-document.getElementById('btn-gradient').addEventListener('click', () => setTool('gradient'));
-document.getElementById('btn-radial').addEventListener('click', () => setTool('radial'));
-document.getElementById('btn-undo').addEventListener('click', undo);
-document.getElementById('btn-pressure').addEventListener('click', togglePressure);
-document.getElementById('btn-stabilize').addEventListener('click', toggleSmoothing);
-document.getElementById('btn-symmetry').addEventListener('click', toggleSymmetry);
-
-// ─── CLEAR (nuclear) ───
-document.getElementById('btn-clear').addEventListener('click', () => {
-  if (!strokes.length) return;
-  saveUndoState();
-  // Collect ref meshes to preserve
-  const refMeshes = new Set(refImages.map(r => r.mesh));
-  // Remove only non-ref objects
-  for (let i = scene.children.length - 1; i >= 0; i--) {
-    const c = scene.children[i];
-    if (refMeshes.has(c)) continue;
-    scene.remove(c);
-    c.geometry?.dispose();
-    c.material?.dispose();
-  }
-  strokes = [];
-  renderOrderCounter = 0;
-  clearPreviews();
-  updateStatus();
-});
-
-// ─── EXPORT PNG ───
-document.getElementById('btn-png').addEventListener('click', () => {
-  hideRefs();
-  renderer.render(scene, camera);
-  const a = document.createElement('a');
-  a.href = renderer.domElement.toDataURL('image/png');
-  a.download = 'nib-sketch.png'; a.click();
-  showRefs();
-  showToast('PNG exported');
-});
-
-// ─── EXPORT GLTF ───
-document.getElementById('btn-gltf').addEventListener('click', () => {
-  if (!strokes.length) { showToast('Nothing to export'); return; }
-  try {
-    const gltf = { asset:{version:"2.0",generator:"NIB"}, scene:0, scenes:[{nodes:[]}], nodes:[], meshes:[], accessors:[], bufferViews:[], buffers:[], materials:[] };
-    const allBuf = []; let byteOff = 0;
-    for (const s of strokes) {
-      const geo = s.mesh.geometry, posAttr = geo.getAttribute('position');
-      if (!posAttr) continue;
-      const posArr = new Float32Array(posAttr.array);
+// ════════════════════════════════════════
+// EXPORT GLTF
+// ════════════════════════════════════════
+document.getElementById('btn-gltf').addEventListener('click',()=>{
+  if(!strokes.length){showToast('Nothing to export');return;}
+  try{
+    const gltf={asset:{version:"2.0",generator:"NIB"},scene:0,scenes:[{nodes:[]}],nodes:[],meshes:[],accessors:[],bufferViews:[],buffers:[],materials:[]};
+    const allBuf=[];let byteOff=0;
+    for(const s of strokes){
+      const geo=s.mesh.geometry,posAttr=geo.getAttribute('position');if(!posAttr)continue;
+      const pa=new Float32Array(posAttr.array);
       let mnX=Infinity,mnY=Infinity,mnZ=Infinity,mxX=-Infinity,mxY=-Infinity,mxZ=-Infinity;
-      for (let j=0;j<posArr.length;j+=3) { mnX=Math.min(mnX,posArr[j]);mnY=Math.min(mnY,posArr[j+1]);mnZ=Math.min(mnZ,posArr[j+2]);mxX=Math.max(mxX,posArr[j]);mxY=Math.max(mxY,posArr[j+1]);mxZ=Math.max(mxZ,posArr[j+2]); }
-      const pBV = gltf.bufferViews.length;
-      gltf.bufferViews.push({buffer:0,byteOffset:byteOff,byteLength:posArr.byteLength,target:34962});
-      allBuf.push(new Uint8Array(posArr.buffer.slice(posArr.byteOffset,posArr.byteOffset+posArr.byteLength)));
-      byteOff+=posArr.byteLength; const pp=(4-(posArr.byteLength%4))%4; if(pp){allBuf.push(new Uint8Array(pp));byteOff+=pp;}
-      const pAcc = gltf.accessors.length;
-      gltf.accessors.push({bufferView:pBV,componentType:5126,count:posAttr.count,type:"VEC3",max:[mxX,mxY,mxZ],min:[mnX,mnY,mnZ]});
-      let iAcc; const idx = geo.getIndex();
-      if (idx) {
-        const u32=idx.array instanceof Uint32Array||posAttr.count>65535;
-        const iArr=u32?new Uint32Array(idx.array):new Uint16Array(idx.array);
-        const iBV=gltf.bufferViews.length;
-        gltf.bufferViews.push({buffer:0,byteOffset:byteOff,byteLength:iArr.byteLength,target:34963});
-        allBuf.push(new Uint8Array(iArr.buffer.slice(iArr.byteOffset,iArr.byteOffset+iArr.byteLength)));
-        byteOff+=iArr.byteLength; const ip=(4-(iArr.byteLength%4))%4; if(ip){allBuf.push(new Uint8Array(ip));byteOff+=ip;}
-        iAcc=gltf.accessors.length; gltf.accessors.push({bufferView:iBV,componentType:u32?5125:5123,count:idx.count,type:"SCALAR"});
-      }
-      const col=s.mesh.material.color, mIdx=gltf.materials.length;
-      gltf.materials.push({pbrMetallicRoughness:{baseColorFactor:[col.r,col.g,col.b,1],metallicFactor:0,roughnessFactor:1},doubleSided:true});
-      const mshIdx=gltf.meshes.length, prim={attributes:{POSITION:pAcc},material:mIdx};
-      if(iAcc!==undefined) prim.indices=iAcc;
-      gltf.meshes.push({primitives:[prim]});
-      const node={mesh:mshIdx}, p=s.mesh.position;
-      if(p.x||p.y||p.z) node.translation=[p.x,p.y,p.z];
-      gltf.nodes.push(node); gltf.scenes[0].nodes.push(gltf.nodes.length-1);
+      for(let j=0;j<pa.length;j+=3){mnX=Math.min(mnX,pa[j]);mnY=Math.min(mnY,pa[j+1]);mnZ=Math.min(mnZ,pa[j+2]);mxX=Math.max(mxX,pa[j]);mxY=Math.max(mxY,pa[j+1]);mxZ=Math.max(mxZ,pa[j+2]);}
+      const pBV=gltf.bufferViews.length;gltf.bufferViews.push({buffer:0,byteOffset:byteOff,byteLength:pa.byteLength,target:34962});
+      allBuf.push(new Uint8Array(pa.buffer.slice(pa.byteOffset,pa.byteOffset+pa.byteLength)));
+      byteOff+=pa.byteLength;const pp=(4-(pa.byteLength%4))%4;if(pp){allBuf.push(new Uint8Array(pp));byteOff+=pp;}
+      const pAcc=gltf.accessors.length;gltf.accessors.push({bufferView:pBV,componentType:5126,count:posAttr.count,type:"VEC3",max:[mxX,mxY,mxZ],min:[mnX,mnY,mnZ]});
+      let iAcc;const idx=geo.getIndex();
+      if(idx){const u32=idx.array instanceof Uint32Array||posAttr.count>65535;const ia=u32?new Uint32Array(idx.array):new Uint16Array(idx.array);const iBV=gltf.bufferViews.length;gltf.bufferViews.push({buffer:0,byteOffset:byteOff,byteLength:ia.byteLength,target:34963});allBuf.push(new Uint8Array(ia.buffer.slice(ia.byteOffset,ia.byteOffset+ia.byteLength)));byteOff+=ia.byteLength;const ip=(4-(ia.byteLength%4))%4;if(ip){allBuf.push(new Uint8Array(ip));byteOff+=ip;}iAcc=gltf.accessors.length;gltf.accessors.push({bufferView:iBV,componentType:u32?5125:5123,count:idx.count,type:"SCALAR"});}
+      const col=s.mesh.material.color||new THREE.Color(s.color),mIdx=gltf.materials.length;gltf.materials.push({pbrMetallicRoughness:{baseColorFactor:[col.r,col.g,col.b,1],metallicFactor:0,roughnessFactor:1},doubleSided:true});
+      const mshIdx=gltf.meshes.length,prim={attributes:{POSITION:pAcc},material:mIdx};if(iAcc!==undefined)prim.indices=iAcc;
+      gltf.meshes.push({primitives:[prim]});const node={mesh:mshIdx},p=s.mesh.position;if(p.x||p.y||p.z)node.translation=[p.x,p.y,p.z];
+      gltf.nodes.push(node);gltf.scenes[0].nodes.push(gltf.nodes.length-1);
     }
-    const total=allBuf.reduce((s,a)=>s+a.length,0), combined=new Uint8Array(total);
-    let o=0; for(const c of allBuf){combined.set(c,o);o+=c.length;}
-    let bin=''; for(let i=0;i<combined.length;i++) bin+=String.fromCharCode(combined[i]);
+    const total=allBuf.reduce((s,a)=>s+a.length,0),combined=new Uint8Array(total);let o=0;for(const c of allBuf){combined.set(c,o);o+=c.length;}
+    let bin='';for(let i=0;i<combined.length;i++)bin+=String.fromCharCode(combined[i]);
     gltf.buffers.push({uri:`data:application/octet-stream;base64,${btoa(bin)}`,byteLength:total});
-    const blob=new Blob([JSON.stringify(gltf)],{type:'application/json'});
-    const url=URL.createObjectURL(blob), a=document.createElement('a');
-    a.href=url; a.download='nib-sketch.gltf'; a.click(); URL.revokeObjectURL(url);
-    showToast('glTF exported');
-  } catch(err) { console.error(err); showToast('Export failed'); }
+    const blob=new Blob([JSON.stringify(gltf)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='nib-sketch.gltf';a.click();URL.revokeObjectURL(url);showToast('glTF exported');
+  }catch(err){console.error(err);showToast('Export failed');}
 });
 
-// ─── EXPORT TIMELAPSE ───
-document.getElementById('btn-timelapse').addEventListener('click', () => {
-  if (!strokes.length) { showToast('Nothing to record'); return; }
-  if (isExporting) return;
-  exportTimelapse();
-});
+// ════════════════════════════════════════
+// EXPORT TIMELAPSE
+// ════════════════════════════════════════
+document.getElementById('btn-timelapse').addEventListener('click',()=>{if(!strokes.length){showToast('Nothing to record');return;}if(isExporting)return;exportTimelapse();});
 
-async function exportTimelapse() {
-  isExporting = true;
-  stopRenderLoop(); // CRITICAL: stop main loop so it doesn't fight with export rendering
+async function exportTimelapse(){
+  isExporting=true;stopRenderLoop();
+  const overlay=document.getElementById('export-overlay'),progressBar=document.getElementById('export-progress'),statusEl=document.getElementById('export-status'),detailEl=document.getElementById('export-detail');
+  overlay.style.display='flex';progressBar.style.width='0%';
+  document.querySelector('.toolbar').style.opacity='0';document.querySelector('.toolbar').style.pointerEvents='none';
+  symOverlay.style.display='none';symHandleA.style.display='none';symHandleB.style.display='none';hideRefs();
 
-  const overlay = document.getElementById('export-overlay');
-  const progressBar = document.getElementById('export-progress');
-  const statusEl = document.getElementById('export-status');
-  const detailEl = document.getElementById('export-detail');
-  overlay.style.display = 'flex';
-  progressBar.style.width = '0%';
-  document.querySelector('.toolbar').style.opacity = '0';
-  document.querySelector('.toolbar').style.pointerEvents = 'none';
-  symOverlay.style.display = 'none'; symHandleA.style.display = 'none'; symHandleB.style.display = 'none';
-  hideRefs();
+  const strokeList=strokes.map(s=>({strokeData:s.strokeData,color:s.color,size:s.size,opacity:s.opacity,isLasso:!!s.isLasso,isRadial:!!s.isRadial,smooth:s.smooth??smoothLevel,pressureOn:s.pressureOn??pressureEnabled,drawStartAt:s.drawStartAt||0,createdAt:s.createdAt||0}));
+  strokeList.sort((a,b)=>a.createdAt-b.createdAt);
 
-  // Build stroke timeline
-  const strokeList = strokes.map(s => ({
-    strokeData: s.strokeData, color: s.color, size: s.size, opacity: s.opacity,
-    isLasso: !!s.isLasso, isRadial: !!s.isRadial, smooth: s.smooth !== undefined ? s.smooth : smoothLevel,
-    drawStartAt: s.drawStartAt||0, createdAt: s.createdAt||0
-  }));
-  strokeList.sort((a,b) => a.createdAt - b.createdAt);
+  const IDLE=2000,GAP=200,firstTime=strokeList[0].drawStartAt||strokeList[0].createdAt;
+  let idleRem=0;for(let i=1;i<strokeList.length;i++){const gap=(strokeList[i].drawStartAt||strokeList[i].createdAt)-strokeList[i-1].createdAt;if(gap>IDLE)idleRem+=gap-GAP;}
+  const rawDur=strokeList[strokeList.length-1].createdAt-firstTime;
+  const compDur=Math.max(rawDur-idleRem,2000);
+  const SPEED=12,FPS=30;
+  const playDur=Math.max(compDur/SPEED,3000),totalFrames=Math.ceil((playDur/1000)*FPS);
+  statusEl.textContent=`Exporting (${(playDur/1000).toFixed(1)}s @ ${SPEED}x)`;
 
-  // Collapse idle gaps
-  const IDLE_THRESHOLD = 2000, GAP_TRANSITION = 200;
-  const firstTime = strokeList[0].drawStartAt || strokeList[0].createdAt;
-  let idleRemoved = 0;
-  for (let i=1; i<strokeList.length; i++) {
-    const gap = (strokeList[i].drawStartAt||strokeList[i].createdAt) - strokeList[i-1].createdAt;
-    if (gap > IDLE_THRESHOLD) idleRemoved += gap - GAP_TRANSITION;
-  }
-  const rawDur = strokeList[strokeList.length-1].createdAt - firstTime;
-  const compDur = Math.max(rawDur - idleRemoved, 2000);
-  const SPEED = 12, FPS = 30;
-  const playDur = Math.max(compDur / SPEED, 3000);
-  const totalFrames = Math.ceil((playDur/1000) * FPS);
+  let accIdle=0;
+  const timeline=strokeList.map((s,i)=>{if(i>0){const gap=(s.drawStartAt||s.createdAt)-strokeList[i-1].createdAt;if(gap>IDLE)accIdle+=gap-GAP;}const ds=((s.drawStartAt||s.createdAt)-firstTime-accIdle)/SPEED;const de=(s.createdAt-firstTime-accIdle)/SPEED;return{...s,pStart:ds,pEnd:ds+Math.max(de-ds,100)};});
 
-  statusEl.textContent = `Exporting (${(playDur/1000).toFixed(1)}s @ ${SPEED}x)`;
-  detailEl.textContent = `${totalFrames} frames · ${((rawDur-compDur)/1000).toFixed(0)}s idle cut`;
-
-  // Compressed timeline
-  let accIdle = 0;
-  const timeline = strokeList.map((s,i) => {
-    if (i>0) { const gap = (s.drawStartAt||s.createdAt) - strokeList[i-1].createdAt; if (gap>IDLE_THRESHOLD) accIdle += gap-GAP_TRANSITION; }
-    const ds = ((s.drawStartAt||s.createdAt) - firstTime - accIdle) / SPEED;
-    const de = (s.createdAt - firstTime - accIdle) / SPEED;
-    return { ...s, pStart: ds, pEnd: ds + Math.max(de-ds, 100) };
+  // Separate scene
+  const exportScene=new THREE.Scene();
+  const sv=smoothLevel,pv=pressureEnabled;
+  const exportMeshes=timeline.map((ts,idx)=>{
+    smoothLevel=ts.smooth??sv;pressureEnabled=ts.pressureOn??pv;
+    let m;if(ts.isRadial)m=buildRadialFill(ts.strokeData.map(d=>d.pos),ts.color,ts.opacity);
+    else if(ts.isLasso)m=buildLassoFill(ts.strokeData.map(d=>d.pos),ts.color,ts.opacity);
+    else m=buildStrokeMesh(ts.strokeData,ts.size,ts.color,ts.opacity);
+    if(m){m.visible=false;m.renderOrder=idx;exportScene.add(m);}return m;
   });
+  smoothLevel=sv;pressureEnabled=pv;
 
-  // ── SEPARATE SCENE for export ──
-  const exportScene = new THREE.Scene();
+  const cW=renderer.domElement.width,cH=renderer.domElement.height,exW=cW&~1,exH=cH&~1;
+  const tempCanvas=document.createElement('canvas');tempCanvas.width=exW;tempCanvas.height=exH;
+  const tempCtx=tempCanvas.getContext('2d');
+  let partialMesh=null,success=false;
 
-  // Pre-build one mesh per stroke (all hidden initially)
-  const savedSmoothExport = smoothLevel;
-  const exportMeshes = timeline.map((ts, idx) => {
-    smoothLevel = ts.smooth !== undefined ? ts.smooth : savedSmoothExport;
-    let m;
-    if (ts.isRadial) m = buildRadialFill(ts.strokeData.map(d=>d.pos), ts.color, ts.opacity);
-    else if (ts.isLasso) m = buildLassoFill(ts.strokeData.map(d=>d.pos), ts.color, ts.opacity);
-    else m = buildStrokeMesh(ts.strokeData, ts.size, ts.color, ts.opacity);
-    if (m) { m.visible = false; m.renderOrder = idx; exportScene.add(m); }
-    return m;
-  });
-  smoothLevel = savedSmoothExport;
-
-  // Canvas for even dimensions (H.264)
-  const cW = renderer.domElement.width, cH = renderer.domElement.height;
-  const exW = cW & ~1, exH = cH & ~1;
-  const tempCanvas = document.createElement('canvas');
-  tempCanvas.width = exW; tempCanvas.height = exH;
-  const tempCtx = tempCanvas.getContext('2d');
-
-  let partialMesh = null;
-  let success = false;
-
-  // Helper: render one frame at time t
-  function renderFrame(t) {
-    if (partialMesh) { exportScene.remove(partialMesh); partialMesh.geometry?.dispose(); partialMesh.material?.dispose(); partialMesh = null; }
-    for (let i = 0; i < timeline.length; i++) {
-      const ts = timeline[i], m = exportMeshes[i];
-      if (!m) continue;
-      if (t >= ts.pEnd) { m.visible = true; }
-      else if (t >= ts.pStart) {
-        // Radial fills: just pop in (progressive radial causes shader artifacts)
-        if (ts.isRadial) { m.visible = true; continue; }
-        m.visible = false;
-        const prog = (t - ts.pStart) / (ts.pEnd - ts.pStart);
-        const cnt = Math.max(2, Math.floor(ts.strokeData.length * prog));
-        const partial = ts.strokeData.slice(0, cnt);
-        if (ts.isLasso && partial.length >= 3) partialMesh = buildLassoFill(partial.map(d=>d.pos), ts.color, ts.opacity);
-        else if (!ts.isLasso) partialMesh = buildStrokeMesh(partial, ts.size, ts.color, ts.opacity);
-        if (partialMesh) { partialMesh.renderOrder = i; exportScene.add(partialMesh); }
-      } else { m.visible = false; }
+  function renderFrame(t){
+    if(partialMesh){exportScene.remove(partialMesh);partialMesh.geometry?.dispose();partialMesh.material?.dispose();partialMesh=null;}
+    for(let i=0;i<timeline.length;i++){
+      const ts=timeline[i],m=exportMeshes[i];if(!m)continue;
+      if(t>=ts.pEnd){m.visible=true;}
+      else if(t>=ts.pStart){
+        if(ts.isRadial){m.visible=true;continue;} // radial: pop in
+        m.visible=false;
+        const prog=(t-ts.pStart)/(ts.pEnd-ts.pStart),cnt=Math.max(2,Math.floor(ts.strokeData.length*prog)),partial=ts.strokeData.slice(0,cnt);
+        smoothLevel=ts.smooth??sv;pressureEnabled=ts.pressureOn??pv;
+        if(ts.isLasso&&partial.length>=3)partialMesh=buildLassoFill(partial.map(d=>d.pos),ts.color,ts.opacity);
+        else if(!ts.isLasso)partialMesh=buildStrokeMesh(partial,ts.size,ts.color,ts.opacity);
+        smoothLevel=sv;pressureEnabled=pv;
+        if(partialMesh){partialMesh.renderOrder=i;exportScene.add(partialMesh);}
+      }else{m.visible=false;}
     }
-    renderer.setClearColor(0xffffff, 1);
-    renderer.render(exportScene, camera);
+    renderer.setClearColor(0xffffff,1);renderer.render(exportScene,camera);
   }
+  function drawWatermark(ctx,w,h){ctx.font='11px "IBM Plex Mono",monospace';ctx.fillStyle='rgba(0,0,0,.15)';ctx.textAlign='center';ctx.fillText('Made with NIB',w/2,h-14);}
 
-  // Watermark helper for timelapse frames
-  function drawWatermark(ctx, w, h) {
-    ctx.font = '11px "IBM Plex Mono", monospace';
-    ctx.fillStyle = 'rgba(0,0,0,0.15)';
-    ctx.textAlign = 'center';
-    ctx.fillText('Made with NIB', w / 2, h - 14);
+  // Decide method before animating
+  let useWC=false,mp4Mod=null;
+  if(typeof VideoEncoder!=='undefined'){
+    for(const url of['https://cdn.jsdelivr.net/npm/mp4-muxer@5/build/mp4-muxer.mjs','https://unpkg.com/mp4-muxer@5/build/mp4-muxer.mjs']){try{mp4Mod=await import(url);break;}catch(_){}}
+    if(mp4Mod){try{const sup=await VideoEncoder.isConfigSupported({codec:'avc1.42001f',width:exW,height:exH,bitrate:2e6,framerate:FPS});if(sup.supported)useWC=true;}catch(_){}}
   }
+  let mime,fileExt;
+  if(!useWC){for(const t of['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm']){if(typeof MediaRecorder!=='undefined'&&MediaRecorder.isTypeSupported(t)){mime=t;break;}}if(!mime)mime='video/webm';fileExt=mime.startsWith('video/mp4')?'mp4':'webm';}
+  detailEl.textContent=`${totalFrames} frames · ${useWC?'WebCodecs MP4':'MediaRecorder '+(fileExt||'')}`;
 
-  // ── Decide encoding method BEFORE animating (prevents double-run) ──
-  let useWebCodecs = false;
-  let mp4Module = null;
-
-  if (typeof VideoEncoder !== 'undefined') {
-    const cdnUrls = [
-      'https://cdn.jsdelivr.net/npm/mp4-muxer@5/build/mp4-muxer.mjs',
-      'https://unpkg.com/mp4-muxer@5/build/mp4-muxer.mjs',
-      'https://cdn.jsdelivr.net/npm/mp4-muxer/build/mp4-muxer.mjs'
-    ];
-    for (const url of cdnUrls) { try { mp4Module = await import(url); break; } catch(_) {} }
-    if (mp4Module) {
-      try {
-        const testCfg = { codec: 'avc1.42001f', width: exW, height: exH, bitrate: 2_000_000, framerate: FPS };
-        const supported = await VideoEncoder.isConfigSupported(testCfg);
-        if (supported.supported) useWebCodecs = true;
-      } catch(_) {}
-    }
-  }
-
-  let mime, fileExt;
-  if (!useWebCodecs) {
-    const mp4Types = ['video/mp4;codecs=avc1', 'video/mp4;codecs="avc1.42E01E"', 'video/mp4'];
-    const webmTypes = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
-    for (const t of [...mp4Types, ...webmTypes]) { if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t)) { mime = t; break; } }
-    if (!mime) mime = 'video/webm';
-    fileExt = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
-  }
-
-  detailEl.textContent = `${totalFrames} frames · ${useWebCodecs ? 'WebCodecs MP4' : 'MediaRecorder ' + (fileExt||'')}`;
-
-  // ── Run animation exactly ONCE with chosen method ──
-  try {
-    if (useWebCodecs) {
-      const { Muxer, ArrayBufferTarget } = mp4Module;
-      const target = new ArrayBufferTarget();
-      const muxer = new Muxer({ target, video: { codec: 'avc', width: exW, height: exH }, fastStart: 'in-memory' });
-      const encoder = new VideoEncoder({
-        output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
-        error: err => console.error('Encode error:', err)
-      });
-      encoder.configure({ codec: 'avc1.42001f', width: exW, height: exH, bitrate: 2_000_000, framerate: FPS });
-
-      for (let frame = 0; frame <= totalFrames; frame++) {
-        renderFrame((frame / totalFrames) * playDur);
-        tempCtx.drawImage(renderer.domElement, 0, 0, exW, exH);
-        drawWatermark(tempCtx, exW, exH);
-        const vf = new VideoFrame(tempCanvas, { timestamp: frame * (1_000_000 / FPS) });
-        encoder.encode(vf, { keyFrame: frame % (FPS * 2) === 0 });
-        vf.close();
-        if (frame % 10 === 0) { progressBar.style.width = ((frame / totalFrames) * 100) + '%'; await new Promise(r => setTimeout(r, 0)); }
-        while (encoder.encodeQueueSize > 10) await new Promise(r => setTimeout(r, 1));
+  try{
+    if(useWC){
+      const{Muxer,ArrayBufferTarget}=mp4Mod,target=new ArrayBufferTarget();
+      const muxer=new Muxer({target,video:{codec:'avc',width:exW,height:exH},fastStart:'in-memory'});
+      const encoder=new VideoEncoder({output:(ch,meta)=>muxer.addVideoChunk(ch,meta),error:e=>console.error(e)});
+      encoder.configure({codec:'avc1.42001f',width:exW,height:exH,bitrate:2e6,framerate:FPS});
+      for(let f=0;f<=totalFrames;f++){
+        renderFrame((f/totalFrames)*playDur);tempCtx.drawImage(renderer.domElement,0,0,exW,exH);drawWatermark(tempCtx,exW,exH);
+        const vf=new VideoFrame(tempCanvas,{timestamp:f*(1e6/FPS)});encoder.encode(vf,{keyFrame:f%(FPS*2)===0});vf.close();
+        if(f%10===0){progressBar.style.width=((f/totalFrames)*100)+'%';await new Promise(r=>setTimeout(r,0));}
+        while(encoder.encodeQueueSize>10)await new Promise(r=>setTimeout(r,1));
       }
-
-      await encoder.flush(); encoder.close();
-      muxer.finalize();
-      const blob = new Blob([target.buffer], { type: 'video/mp4' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = 'nib-timelapse.mp4'; a.click();
-      URL.revokeObjectURL(url);
-      success = true;
-
-    } else {
-      const stream = tempCanvas.captureStream(30);
-      const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 2_000_000 });
-      const chunks = [];
-      recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
-      const done = new Promise(res => { recorder.onstop = () => res(); });
-      recorder.start();
-
-      let fr = 0;
-      await new Promise(resolve => {
-        const iv = setInterval(() => {
-          renderFrame((fr / totalFrames) * playDur);
-          tempCtx.drawImage(renderer.domElement, 0, 0, exW, exH);
-          drawWatermark(tempCtx, exW, exH);
-          progressBar.style.width = ((fr / totalFrames) * 100) + '%';
-          fr++;
-          if (fr > totalFrames) { clearInterval(iv); recorder.stop(); resolve(); }
-        }, 1000 / FPS);
-      });
-
-      await done;
-      const blob = new Blob(chunks, { type: mime });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = `nib-timelapse.${fileExt}`; a.click();
-      URL.revokeObjectURL(url);
-      success = true;
+      await encoder.flush();encoder.close();muxer.finalize();
+      const blob=new Blob([target.buffer],{type:'video/mp4'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='nib-timelapse.mp4';a.click();URL.revokeObjectURL(url);success=true;
+    }else{
+      const stream=tempCanvas.captureStream(30),recorder=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:2e6}),chunks=[];
+      recorder.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data);};
+      const done=new Promise(res=>{recorder.onstop=()=>res();});recorder.start();
+      let fr=0;await new Promise(resolve=>{const iv=setInterval(()=>{renderFrame((fr/totalFrames)*playDur);tempCtx.drawImage(renderer.domElement,0,0,exW,exH);drawWatermark(tempCtx,exW,exH);progressBar.style.width=((fr/totalFrames)*100)+'%';fr++;if(fr>totalFrames){clearInterval(iv);recorder.stop();resolve();}},1000/FPS);});
+      await done;const blob=new Blob(chunks,{type:mime}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`nib-timelapse.${fileExt}`;a.click();URL.revokeObjectURL(url);success=true;
     }
-  } catch (err) { console.error('Export failed:', err); showToast('Export failed — check console'); }
+  }catch(err){console.error('Export failed:',err);showToast('Export failed');}
 
-  // ── Cleanup ──
-  if (partialMesh) { exportScene.remove(partialMesh); partialMesh.geometry?.dispose(); partialMesh.material?.dispose(); }
-  exportMeshes.forEach(m => { if (m) { exportScene.remove(m); m.geometry?.dispose(); m.material?.dispose(); } });
-
-  // Restore main scene rendering
-  renderer.setClearColor(0xffffff, 1);
-  renderer.render(scene, camera);
-  startRenderLoop();
-
-  overlay.style.display = 'none';
-  document.querySelector('.toolbar').style.opacity = '1';
-  document.querySelector('.toolbar').style.pointerEvents = 'auto';
-  if (symmetryEnabled) updateSymmetryOverlay();
-  showRefs();
-  isExporting = false;
-  if (success && !document.querySelector('.toast.show')) showToast('Timelapse exported as MP4');
+  if(partialMesh){exportScene.remove(partialMesh);partialMesh.geometry?.dispose();partialMesh.material?.dispose();}
+  exportMeshes.forEach(m=>{if(m){exportScene.remove(m);m.geometry?.dispose();m.material?.dispose();}});
+  renderer.setClearColor(0xffffff,1);renderer.render(scene,camera);startRenderLoop();
+  overlay.style.display='none';document.querySelector('.toolbar').style.opacity='1';document.querySelector('.toolbar').style.pointerEvents='auto';
+  if(symmetryEnabled)updateSymmetryOverlay();showRefs();isExporting=false;
+  if(success)showToast('Timelapse exported');
 }
 
-// ─── UTILS ───
-function updateStatus() {
-  document.getElementById('status').textContent = `strokes: ${strokes.length} | history: ${undoStack.length}/${MAX_HISTORY}`;
-  document.getElementById('btn-undo').disabled = !undoStack.length;
-}
-function showToast(msg) {
-  const el = document.getElementById('toast'); el.textContent = msg;
-  el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 2000);
-}
+// ════════════════════════════════════════
+// UTILS
+// ════════════════════════════════════════
+function updateStatus(){document.getElementById('status').textContent=`strokes: ${strokes.length} | history: ${undoStack.length}/${MAX_HISTORY}`;document.getElementById('btn-undo').disabled=!undoStack.length;}
+function showToast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2000);}
 
-// ─── TOOLBAR RESIZE ───
-let tbScale = 1, tbDragStartY = 0, tbDragStartScale = 1, tbDragging = false;
-const tbEl = document.querySelector('.toolbar');
-const tbHandle = document.getElementById('toolbar-resize');
+// ════════════════════════════════════════
+// TOOLBAR RESIZE
+// ════════════════════════════════════════
+let tbScale=1,tbDragStartY=0,tbDragStartScale=1,tbDragging=false;
+const tbEl=document.querySelector('.toolbar'),tbHandle=document.getElementById('toolbar-resize');
+tbHandle.addEventListener('pointerdown',e=>{e.stopPropagation();e.preventDefault();tbDragging=true;tbDragStartY=e.clientY;tbDragStartScale=tbScale;tbHandle.setPointerCapture(e.pointerId);});
+tbHandle.addEventListener('pointermove',e=>{if(!tbDragging)return;tbScale=Math.max(.5,Math.min(2.5,tbDragStartScale+(e.clientY-tbDragStartY)*.005));tbEl.style.setProperty('--tb-scale',tbScale);});
+tbHandle.addEventListener('pointerup',()=>{tbDragging=false;});
+tbHandle.addEventListener('pointercancel',()=>{tbDragging=false;});
 
-tbHandle.addEventListener('pointerdown', e => {
-  e.stopPropagation(); e.preventDefault();
-  tbDragging = true;
-  tbDragStartY = e.clientY;
-  tbDragStartScale = tbScale;
-  tbHandle.setPointerCapture(e.pointerId);
-});
-tbHandle.addEventListener('pointermove', e => {
-  if (!tbDragging) return;
-  const dy = e.clientY - tbDragStartY;
-  tbScale = Math.max(0.5, Math.min(2.5, tbDragStartScale + dy * 0.005));
-  tbEl.style.setProperty('--tb-scale', tbScale);
-});
-tbHandle.addEventListener('pointerup', () => { tbDragging = false; });
-tbHandle.addEventListener('pointercancel', () => { tbDragging = false; });
+// ════════════════════════════════════════
+// WINDOW RESIZE
+// ════════════════════════════════════════
+window.addEventListener('resize',()=>{const w=window.innerWidth,h=window.innerHeight;renderer.setSize(w,h);camera.left=-w/2;camera.right=w/2;camera.top=h/2;camera.bottom=-h/2;camera.updateProjectionMatrix();updateSymmetryOverlay();updateRefOverlays();});
 
-// ─── RESIZE ───
-window.addEventListener('resize', () => {
-  const w=window.innerWidth, h=window.innerHeight;
-  renderer.setSize(w,h);
-  camera.left=-w/2; camera.right=w/2; camera.top=h/2; camera.bottom=-h/2;
-  camera.updateProjectionMatrix();
-  updateSymmetryOverlay();
-  updateRefOverlays();
-});
-
-// ─── RENDER ───
-let animFrameId = null;
-function startRenderLoop() {
-  function tick() { animFrameId = requestAnimationFrame(tick); renderer.render(scene, camera); }
-  tick();
-}
-function stopRenderLoop() { if (animFrameId) { cancelAnimationFrame(animFrameId); animFrameId = null; } }
-startRenderLoop();
-updateStatus(); syncSizeUI();
+// ════════════════════════════════════════
+// RENDER LOOP
+// ════════════════════════════════════════
+let animFrameId=null;
+function startRenderLoop(){function tick(){animFrameId=requestAnimationFrame(tick);renderer.render(scene,camera);}tick();}
+function stopRenderLoop(){if(animFrameId){cancelAnimationFrame(animFrameId);animFrameId=null;}}
+startRenderLoop();updateStatus();syncSizeUI();
 </script>
 </body>
 </html>
