@@ -116,13 +116,19 @@ input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;hei
 .layer-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-weight:600;font-size:10px}
 .layer-header button{background:none;border:1px solid #000;border-radius:3px;cursor:pointer;font-size:10px;width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-family:inherit}
 .layer-header button:hover{background:#000;color:#fff}
-.layer-item{display:flex;align-items:center;gap:3px;padding:3px 4px;border-radius:3px;cursor:pointer;transition:background .1s}
+.layer-item{padding:4px 4px;border-radius:3px;cursor:pointer;transition:background .1s}
 .layer-item:hover{background:#f0f0f0}
 .layer-item.active{background:#000;color:#fff}
+.layer-item.ref .lname{color:#666}
+.layer-item.active.ref .lname{color:#ccc}
+.layer-row{display:flex;align-items:center;gap:3px}
 .layer-item .lname{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .layer-item .lbtns{display:flex;gap:1px}
 .layer-item .lbtns button{background:none;border:none;cursor:pointer;font-size:8px;color:inherit;padding:1px 3px;border-radius:2px;opacity:.6}
 .layer-item .lbtns button:hover{opacity:1;background:rgba(128,128,128,.2)}
+.layer-opacity{display:flex;align-items:center;gap:4px;margin-top:2px;padding-left:2px}
+.layer-opacity input[type="range"]{flex:1;width:auto;height:2px;margin:0}
+.layer-opacity .op-val{font-size:7px;opacity:.7;min-width:26px;text-align:right}
 
 
 svg{display:inline;vertical-align:middle}
@@ -161,6 +167,8 @@ svg{display:inline;vertical-align:middle}
   <button id="btn-bg" title="Cycle background">BG</button>
   <button id="btn-anim" title="Export Animation">ANIM</button>
   <button id="btn-seq" title="Export PNG sequence (one file per frame)">SEQ</button>
+  <button id="btn-save" title="Save project file (.nib) — reopen later with LOAD">SAVE</button>
+  <button id="btn-load" title="Load a saved .nib project">LOAD</button>
   <div class="toolbar-resize" id="toolbar-resize" title="Drag to resize"><svg width="14" height="8" viewBox="0 0 14 8" fill="none" stroke="#000" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="13" y2="1"/><line x1="3" y1="4" x2="11" y2="4"/><line x1="5" y1="7" x2="9" y2="7"/></svg></div>
 </div>
 
@@ -186,6 +194,11 @@ svg{display:inline;vertical-align:middle}
   <div class="row"><span>Shade (30% fill)</span><span class="key">G</span></div>
   <div class="row"><span>Glow (radial gradient)</span><span class="key">R</span></div>
   <div class="row"><span>Lasso Select</span><span class="key">Q</span></div>
+  <div class="row"><span>Move selection</span><span>Drag inside · Arrow keys</span></div>
+  <div class="row"><span>Layer lock (blocks draw/erase/nudge/select)</span><span>🔒 in layer panel</span></div>
+  <div class="row"><span>Layer visibility (show/hide)</span><span>👁 in layer panel</span></div>
+  <div class="row"><span>Layer opacity</span><span>Slider in layer panel</span></div>
+  <div class="row"><span>Reference images/GIFs</span><span>Auto-added as Ref layers</span></div>
   <div class="row"><span>Nudge (push strokes, [ ] resize)</span><span class="key">U</span></div>
   <div class="row"><span>Copy selection / paste in place</span><span>Ctrl+Shift+C / V</span></div>
   <h3>Modifiers</h3>
@@ -225,6 +238,7 @@ svg{display:inline;vertical-align:middle}
   <div class="row"><span>Audio reference (waveform)</span><span>Drop audio file</span></div>
   <h3>Export</h3>
   <div class="row"><span>PNG · glTF · Timelapse · Animation</span><span>Toolbar buttons</span></div>
+  <div class="row"><span>Save / load project (.nib)</span><span>SAVE · LOAD · drop file</span></div>
 </div></div>
 
 <div class="watermark">Made with NIB</div>
@@ -242,6 +256,7 @@ svg{display:inline;vertical-align:middle}
   <select id="tl-fps" title="FPS"><option value="6">6fps</option><option value="12" selected>12fps</option><option value="24">24fps</option></select>
   <canvas id="audio-wave" width="600" height="22" title="Audio reference — drop an audio file"></canvas>
 </div>
+<input type="file" id="project-file-input" accept=".nib,.json,application/json" style="display:none">
 <div class="bg-popup" id="bg-popup">
   <button class="bg-close" id="bg-close">×</button>
   <label>Presets</label>
@@ -299,6 +314,8 @@ let isPlaying = false, playStart = 0, playLastIdx = -1;
 let onionEnabled = false;
 let camDragging = false, camStartX = 0, camStartY = 0, camStartCam = null;
 let selectPoints = [], selectedStrokes = [];
+let lastSelectPoly = null, selectionOutlineMesh = null;
+let movingSelection = false, moveLastPos = null, moveUndoSaved = false;
 
 // Layers
 const layers = [];
@@ -509,15 +526,28 @@ const mouse = new THREE.Vector2();
 // ════════════════════════════════════════
 // LAYER SYSTEM
 // ════════════════════════════════════════
-function createLayer(name) {
+function createLayer(name, kind) {
   if (layers.length >= 8) { showToast('Max 8 layers'); return null; }
   const group = new THREE.Group();
   scene.add(group);
-  const layer = { name, group, depth: layers.length, strokes: [] };
+  const layer = { name, group, depth: layers.length, strokes: [], kind: kind||'draw', visible: true, opacity: 1 };
   layers.push(layer);
   updateLayerUI();
   return layer;
 }
+
+function applyLayerVisualState(layer){
+  layer.group.visible = !!layer.visible;
+  layer.group.traverse(o=>{
+    if(o.material){
+      if(o._baseOpacity===undefined)o._baseOpacity = o.material.opacity ?? 1;
+      o.material.opacity = o._baseOpacity * (layer.opacity ?? 1);
+      o.material.transparent = true;
+      o.material.needsUpdate = true;
+    }
+  });
+}
+
 
 function selectLayer(idx) {
   activeLayerIdx = Math.max(0, Math.min(layers.length-1, idx));
@@ -552,9 +582,11 @@ function moveLayerDown(idx) {
 
 function deleteLayer(idx) {
   if (layers.length <= 1) { showToast('Need at least 1 layer'); return; }
+  const layer = layers[idx];
+  // Reference layer: use removeRefImage so its cleanup (dom buttons, textures, blob URL) runs
+  if(layer.kind==='ref' && layer.refItem){ pushTimelineUndo(); removeRefImage(layer.refItem); return; }
   pushTimelineUndo();
   syncFrameStrokes();
-  const layer = layers[idx];
   // Remove this layer's strokes from EVERY frame
   for (const fr of frames) {
     for (const s of fr.strokes) {
@@ -594,6 +626,9 @@ function addStrokeToLayer(stroke, layerIdx) {
   layers[li].strokes.push(stroke);
   stroke.mesh.renderOrder = li * 100000 + layers[li].strokes.length;
   if (!attachedStrokes.includes(stroke)) attachedStrokes.push(stroke);
+  // Reset baseOpacity cache so applyLayerVisualState picks up this stroke's true opacity
+  stroke.mesh._baseOpacity = stroke.mesh.material?.opacity ?? 1;
+  if(layers[li].opacity!==undefined && layers[li].opacity!==1) applyLayerVisualState(layers[li]);
 }
 
 function removeStrokeFromLayer(stroke) {
@@ -608,22 +643,56 @@ function removeStrokeFromLayer(stroke) {
 function updateLayerUI() {
   const list = document.getElementById('layer-list');
   list.innerHTML = '';
-  // Render top-to-bottom (last in array = top of visual stack)
   for (let i = layers.length-1; i >= 0; i--) {
     const l = layers[i];
     const div = document.createElement('div');
-    div.className = 'layer-item' + (i === activeLayerIdx ? ' active' : '');
-    div.innerHTML = `<span class="lname">${l.name}</span><span class="lbtns"><button title="Depth 0-9 (2.5D parallax, 5=flat). Click to cycle">d${l.depthVal??5}</button><button title="Hold: freeze this layer's current frame across ALL frames (backgrounds)">${l.holdSrc!==undefined?'⚓':'○'}</button><button title="Move up (render on top)">▲</button><button title="Move down (render behind)">▼</button><button title="Delete layer">×</button></span>`;
-    // Click whole row to select
-    div.addEventListener('click', (e) => { if (!e.target.closest('.lbtns')) selectLayer(i); });
+    div.className = 'layer-item' + (i === activeLayerIdx ? ' active' : '') + (l.kind==='ref' ? ' ref' : '');
+    const isRef = l.kind === 'ref';
+    // Two rows: name+primary buttons, then opacity slider
+    div.innerHTML = `
+      <div class="layer-row">
+        <span class="lname" title="${l.name}${isRef?' (reference)':''}">${isRef?'🖼 ':''}${l.name}</span>
+        <span class="lbtns">
+          <button title="Visibility (show/hide entire layer)">${l.visible===false?'🚫':'👁'}</button>
+          ${isRef?'':`<button title="Depth 0-9 (2.5D parallax, 5=flat). Click to cycle">d${l.depthVal??5}</button>`}
+          ${isRef?'':`<button title="Hold: freeze this layer's current frame across ALL frames (backgrounds)">${l.holdSrc!==undefined?'⚓':'○'}</button>`}
+          <button title="Lock: prevent drawing, erasing, nudging, or selecting on this layer">${l.locked?'🔒':'🔓'}</button>
+          <button title="Move up (render on top)">▲</button>
+          <button title="Move down (render behind)">▼</button>
+          <button title="Delete layer">×</button>
+        </span>
+      </div>
+      <div class="layer-opacity">
+        <input type="range" min="0" max="100" value="${Math.round((l.opacity??1)*100)}" title="Layer opacity">
+        <span class="op-val">${Math.round((l.opacity??1)*100)}%</span>
+      </div>
+    `;
+    div.addEventListener('click', (e) => { if (!e.target.closest('.lbtns') && !e.target.closest('.layer-opacity')) selectLayer(i); });
     const btns = div.querySelectorAll('.lbtns button');
-    btns[0].addEventListener('click', e => { e.stopPropagation(); l.depthVal=((l.depthVal??5)+1)%10; updateLayerUI(); });
-    btns[1].addEventListener('click', e => { e.stopPropagation(); toggleLayerHold(i); });
-    btns[2].addEventListener('click', e => { e.stopPropagation(); moveLayerUp(i); });
-    btns[3].addEventListener('click', e => { e.stopPropagation(); moveLayerDown(i); });
-    btns[4].addEventListener('click', e => { e.stopPropagation(); deleteLayer(i); });
+    let bi=0;
+    btns[bi++].addEventListener('click', e => { e.stopPropagation(); toggleLayerVisibility(i); });
+    if(!isRef){
+      btns[bi++].addEventListener('click', e => { e.stopPropagation(); l.depthVal=((l.depthVal??5)+1)%10; updateLayerUI(); });
+      btns[bi++].addEventListener('click', e => { e.stopPropagation(); toggleLayerHold(i); });
+    }
+    btns[bi++].addEventListener('click', e => { e.stopPropagation(); toggleLayerLock(i); });
+    btns[bi++].addEventListener('click', e => { e.stopPropagation(); moveLayerUp(i); });
+    btns[bi++].addEventListener('click', e => { e.stopPropagation(); moveLayerDown(i); });
+    btns[bi++].addEventListener('click', e => { e.stopPropagation(); deleteLayer(i); });
+    const slider = div.querySelector('.layer-opacity input');
+    const opVal = div.querySelector('.op-val');
+    slider.addEventListener('input', e => { l.opacity = parseInt(e.target.value)/100; opVal.textContent = e.target.value + '%'; applyLayerVisualState(l); });
+    slider.addEventListener('click', e => e.stopPropagation());
     list.appendChild(div);
   }
+}
+
+function toggleLayerVisibility(li){
+  const l=layers[li];
+  l.visible = !l.visible;
+  applyLayerVisualState(l);
+  updateLayerUI();
+  showToast(`${l.name} ${l.visible?'shown 👁':'hidden 🚫'}`);
 }
 
 // Initialize default layer
@@ -1034,6 +1103,8 @@ function updateSelectPreview(){
 }
 function clearSelection(){
   selectedStrokes=[];
+  lastSelectPoly=null;
+  if(selectionOutlineMesh){selectionOutlineMesh.geometry?.dispose();selectionOutlineMesh.material?.dispose();selectionOutlineMesh=null;}
   while(selectionGroup.children.length){const c=selectionGroup.children[0];selectionGroup.remove(c);c.material?.dispose();}
 }
 function finalizeSelection(){
@@ -1043,6 +1114,7 @@ function finalizeSelection(){
   scene.remove(selectionGroup); scene.add(selectionGroup); // push to end of draw order
   const poly=selectPoints;
   for(const s of strokes){
+    if(layers[s.layerIdx]?.locked)continue;
     const pts=s.strokeData; if(!pts.length)continue;
     let inside=0;
     for(const d of pts){ if(pointInPolygon(d.pos.x,d.pos.y,poly))inside++; }
@@ -1054,9 +1126,30 @@ function finalizeSelection(){
       selectionGroup.add(m);
     }
   }
+  if(selectedStrokes.length){
+    lastSelectPoly=poly.map(p=>p.clone());
+    const outlineData=[...poly,poly[0]].map(p=>({pos:p.clone(),pressure:.5}));
+    selectionOutlineMesh=buildRibbonMesh(outlineData,1.5,'#2a6df5',{opacity:.7});
+    if(selectionOutlineMesh){selectionOutlineMesh.renderOrder=900001;selectionGroup.add(selectionOutlineMesh);}
+  }
   selectPoints=[];
-  showToast(selectedStrokes.length?`Selected ${selectedStrokes.length} stroke${selectedStrokes.length>1?'s':''} — Ctrl+Shift+C to copy`:'Nothing selected');
+  showToast(selectedStrokes.length?`Selected ${selectedStrokes.length} stroke${selectedStrokes.length>1?'s':''} — drag inside to move, Ctrl+Shift+C to copy`:'Nothing selected');
 }
+function hitTestSelection(pos){
+  if(!selectedStrokes.length||!lastSelectPoly)return false;
+  return pointInPolygon(pos.x,pos.y,lastSelectPoly);
+}
+
+function translateSelection(dx,dy){
+  if(!dx&&!dy)return;
+  for(const s of selectedStrokes){
+    s.mesh.geometry.translate(dx,dy,0); // also moves the shared-geometry highlight clone
+    for(const d of s.strokeData){ d.pos.x+=dx; d.pos.y+=dy; }
+  }
+  if(lastSelectPoly)for(const p of lastSelectPoly){ p.x+=dx; p.y+=dy; }
+  if(selectionOutlineMesh)selectionOutlineMesh.geometry.translate(dx,dy,0);
+}
+
 function copySelection(){
   if(!selectedStrokes.length){showToast('No selection — use Select tool (Q) first');return;}
   strokeClipboard=selectedStrokes.map(strokeToSpec);
@@ -1075,15 +1168,19 @@ function copyStrokes(all){
 function pasteStrokes(){
   if(!strokeClipboard.length){showToast('Stroke clipboard empty — press C to copy');return;}
   saveUndoState();
+  let skipped=0;
   for(const d of strokeClipboard){
+    const li=Math.min(d.layerIdx,layers.length-1);
+    if(layers[li]?.locked){skipped++;continue;}
     const m=buildStrokeFromSpec(d); if(!m)continue;
     applyRenderOrder(m);
     const st={mesh:m,strokeData:d.strokeData.map(dd=>({pos:dd.pos.clone(),pressure:dd.pressure})),color:d.color,size:d.size,opacity:d.opacity,isLasso:d.isLasso,isRadial:d.isRadial,isMaskShape:d.isMaskShape,isMasked:d.isMasked,maskSnapshot:d.maskSnapshot?cloneMaskSnapshot(d.maskSnapshot):null,smooth:d.smooth,pressureOn:d.pressureOn,drawStartAt:Date.now(),createdAt:Date.now()};
     strokes.push(st);
-    addStrokeToLayer(st,Math.min(d.layerIdx,layers.length-1));
+    addStrokeToLayer(st,li);
   }
   syncFrameStrokes(); updateStatus();
-  showToast(`Pasted ${strokeClipboard.length} stroke${strokeClipboard.length>1?'s':''}`);
+  const pasted=strokeClipboard.length-skipped;
+  showToast(skipped?`Pasted ${pasted} — ${skipped} skipped (locked layer)`:`Pasted ${pasted} stroke${pasted>1?'s':''}`);
 }
 
 // ── Loop range ──
@@ -1111,6 +1208,14 @@ function toggleLayerHold(li){
   else{ syncFrameStrokes(); l.holdSrc=activeFrameIdx; showToast(`${l.name} held from frame ${activeFrameIdx+1} — shows on all frames`); }
   detachFrameMeshes(); attachFrameMeshes(frames[activeFrameIdx]);
   updateLayerUI(); updateOnion();
+}
+
+function toggleLayerLock(li){
+  const l=layers[li];
+  l.locked=!l.locked;
+  if(l.locked && activeLayerIdx===li) clearSelection();
+  updateLayerUI();
+  showToast(`${l.name} ${l.locked?'locked 🔒':'unlocked 🔓'}`);
 }
 
 // ── Audio reference ──
@@ -1710,6 +1815,7 @@ function eraseAt(worldPos,radius){
   for(const ep of positions){
     for(let si=strokes.length-1;si>=0;si--){
       const s=strokes[si];
+      if(layers[s.layerIdx]?.locked)continue;
       // Lasso/shade fills: triangle-level erase
       if(s.isLasso&&!s.isRadial){
         const res=eraseTrianglesAt(s.mesh,ep,radius);
@@ -1779,6 +1885,7 @@ function nudgeAt(center,dx,dy){
   if(!nudgeUndoSaved){
     outer: for(const s of strokes){
       if(s.mesh.material?.map)continue;
+      if(layers[s.layerIdx]?.locked)continue;
       for(const p of positions){
         for(const d of s.strokeData){
           if(Math.hypot(d.pos.x-p.c.x,d.pos.y-p.c.y)<r){ nudgeUndoSaved=true; saveUndoState(); break outer; }
@@ -1789,6 +1896,7 @@ function nudgeAt(center,dx,dy){
   let anyChanged=false;
   for(const s of strokes){
     if(s.mesh.material?.map)continue; // skip textured (baked threshold) strokes
+    if(layers[s.layerIdx]?.locked)continue;
     let touched=false;
     for(const p of positions){
       for(const d of s.strokeData){
@@ -1942,6 +2050,24 @@ function commitStroke(data,color,size,opacity,isLasso,isRadial){
 // ════════════════════════════════════════
 // REFERENCE IMAGES
 // ════════════════════════════════════════
+function assignRefToNewLayer(ref, name){
+  if(layers.length>=8){
+    // Fall back: put on active layer's group but flag as ref
+    scene.add(ref.mesh);
+    return null;
+  }
+  pushTimelineUndo();
+  const group = new THREE.Group();
+  scene.add(group);
+  const layer = { name, group, depth: layers.length, strokes: [], kind:'ref', visible:true, opacity:1, refItem:ref };
+  layers.push(layer);
+  scene.remove(ref.mesh);
+  group.add(ref.mesh);
+  ref.layer = layer;
+  updateLayerUI();
+  return layer;
+}
+
 function addRefImage(blobUrl){
   const img=new Image();
   img.onload=()=>{
@@ -1958,34 +2084,45 @@ function addRefImage(blobUrl){
     const closeBtn=document.createElement('div');closeBtn.className='ref-close';closeBtn.innerHTML='×';document.body.appendChild(closeBtn);
     const borderEl=document.createElement('div');borderEl.className='ref-border';document.body.appendChild(borderEl);
     const ref={mesh,closeBtn,borderEl,blobUrl,texture:tex};
-    refImages.push(ref); updateRefOverlays();
+    refImages.push(ref);
+    assignRefToNewLayer(ref, `Ref ${refImages.length}`);
+    updateRefOverlays();
     closeBtn.addEventListener('click',e=>{e.stopPropagation();removeRefImage(ref);});
-    showToast('Image pasted — drag to move, scroll to resize');
+    showToast('Image pasted — drag to move, scroll to resize, layer added');
   };
   img.src=blobUrl;
 }
 function removeRefImage(ref){
   if(thresholdRef===ref){thresholdRef=null;thresholdOrigTex=null;}
   ref.frames?.forEach(t=>t.dispose());
-  scene.remove(ref.mesh);ref.mesh.geometry.dispose();ref.mesh.material.dispose();ref.texture.dispose();ref.closeBtn.remove();ref.borderEl.remove();if(ref.blobUrl)URL.revokeObjectURL(ref.blobUrl);refImages=refImages.filter(r=>r!==ref);
+  if(ref.layer){
+    const li = layers.indexOf(ref.layer);
+    if(li>=0){ scene.remove(ref.layer.group); layers.splice(li,1); layers.forEach((l,i)=>{ l.depth=i; }); if(activeLayerIdx>=layers.length)activeLayerIdx=Math.max(0,layers.length-1); updateLayerUI(); }
+  }
+  if(ref.mesh.parent)ref.mesh.parent.remove(ref.mesh);
+  ref.mesh.geometry.dispose();ref.mesh.material.dispose();ref.texture.dispose();ref.closeBtn.remove();ref.borderEl.remove();
+  if(ref.blobUrl)URL.revokeObjectURL(ref.blobUrl);
+  refImages=refImages.filter(r=>r!==ref);
 }
 function updateRefOverlays(){
   for(const ref of refImages){
     const m=ref.mesh,hw=m.userData.refWidth*m.scale.x/2,hh=m.userData.refHeight*m.scale.y/2;
+    const layerHidden = ref.layer && ref.layer.visible === false;
+    const layerLocked = ref.layer && ref.layer.locked;
     const tr=worldToScreen(new THREE.Vector3(m.position.x+hw,m.position.y+hh,0));
     ref.closeBtn.style.left=tr.x+'px';ref.closeBtn.style.top=tr.y+'px';
-    ref.closeBtn.style.display=refsLocked?'none':'flex';
+    ref.closeBtn.style.display=(refsLocked||layerHidden||layerLocked)?'none':'flex';
     const tl=worldToScreen(new THREE.Vector3(m.position.x-hw,m.position.y+hh,0));
     const br=worldToScreen(new THREE.Vector3(m.position.x+hw,m.position.y-hh,0));
-    ref.borderEl.style.display=draggingRef===ref?'block':'none';
+    ref.borderEl.style.display=(draggingRef===ref)?'block':'none';
     ref.borderEl.style.left=tl.x+'px';ref.borderEl.style.top=tl.y+'px';ref.borderEl.style.width=(br.x-tl.x)+'px';ref.borderEl.style.height=(br.y-tl.y)+'px';
   }
 }
 function hitTestRef(wp){
-  // Allow hitting thresholded ref even when locked
+  // Allow hitting thresholded ref even when refsLocked
   if(thresholdRef){const m=thresholdRef.mesh,hw=m.userData.refWidth*m.scale.x/2,hh=m.userData.refHeight*m.scale.y/2;if(wp.x>=m.position.x-hw&&wp.x<=m.position.x+hw&&wp.y>=m.position.y-hh&&wp.y<=m.position.y+hh)return thresholdRef;}
   if(refsLocked)return null;
-  for(let i=refImages.length-1;i>=0;i--){const r=refImages[i],m=r.mesh,hw=m.userData.refWidth*m.scale.x/2,hh=m.userData.refHeight*m.scale.y/2;if(wp.x>=m.position.x-hw&&wp.x<=m.position.x+hw&&wp.y>=m.position.y-hh&&wp.y<=m.position.y+hh)return r;}
+  for(let i=refImages.length-1;i>=0;i--){const r=refImages[i];if(r.layer&&(r.layer.visible===false||r.layer.locked))continue;const m=r.mesh,hw=m.userData.refWidth*m.scale.x/2,hh=m.userData.refHeight*m.scale.y/2;if(wp.x>=m.position.x-hw&&wp.x<=m.position.x+hw&&wp.y>=m.position.y-hh&&wp.y<=m.position.y+hh)return r;}
   return null;
 }
 function hideRefs(){refImages.forEach(r=>{r.mesh.visible=false;r.closeBtn.style.display='none';r.borderEl.style.display='none';});}
@@ -2025,7 +2162,9 @@ function makeAnimatedRef(canvases){
   const closeBtn=document.createElement('div');closeBtn.className='ref-close';closeBtn.innerHTML='×';document.body.appendChild(closeBtn);
   const borderEl=document.createElement('div');borderEl.className='ref-border';document.body.appendChild(borderEl);
   const ref={mesh,closeBtn,borderEl,blobUrl:null,texture:textures[0],frames:textures};
-  refImages.push(ref);updateRefOverlays();
+  refImages.push(ref);
+  assignRefToNewLayer(ref, `Ref ${refImages.length} (anim)`);
+  updateRefOverlays();
   closeBtn.addEventListener('click',e=>{e.stopPropagation();removeRefImage(ref);});
   ensureFrameCount(textures.length);
   updateVideoRefs();
@@ -2080,6 +2219,7 @@ document.addEventListener('drop',e=>{
   if(isExporting)return;
   const f=e.dataTransfer?.files?.[0];
   if(!f)return;
+  if(f.name&&(f.name.toLowerCase().endsWith('.nib')||f.name.toLowerCase().endsWith('.nib.json'))){loadProject(f);return;}
   if(f.type==='image/gif')importGifRef(f);
   else if(f.type.startsWith('video/'))importVideoRef(f);
   else if(f.type.startsWith('image/'))addRefImage(URL.createObjectURL(f));
@@ -2230,10 +2370,21 @@ renderer.domElement.addEventListener('pointerdown',e=>{
   const pos=getWorldPos(e);
   const hitRef=hitTestRef(pos);
   if(hitRef&&currentTool!=='eraser'){draggingRef=hitRef;dragRefOffset=new THREE.Vector3().subVectors(hitRef.mesh.position,pos);renderer.domElement.setPointerCapture(e.pointerId);renderer.domElement.style.cursor='move';hitRef.borderEl.style.display='block';return;}
+  if(layers[activeLayerIdx]?.kind==='ref' && ['pen','brush','line','lasso','gradient','radial'].includes(currentTool)){
+    // Find nearest draw layer and switch to it
+    let drawIdx=layers.findIndex(l=>l.kind!=='ref');
+    if(drawIdx<0){showToast('Add a draw layer first');return;}
+    selectLayer(drawIdx);
+    showToast(`Switched to ${layers[drawIdx].name} (can't draw on reference layer)`);
+  }
+  if(layers[activeLayerIdx]?.locked && ['pen','brush','line','lasso','gradient','radial'].includes(currentTool)){showToast(`${layers[activeLayerIdx].name} is locked`);return;}
   isDrawing=true;currentStrokeStart=Date.now();if(!timelineEpoch)timelineEpoch=currentStrokeStart;
   if(currentTool==='eraser'){eraserUndoSaved=false;eraseAt(pos,eraserSize);return;}
   if(currentTool==='nudge'){nudgeUndoSaved=false;lastNudgePos=pos.clone();renderer.domElement.setPointerCapture(e.pointerId);return;}
-  if(currentTool==='select'){selectPoints=[pos];renderer.domElement.setPointerCapture(e.pointerId);return;}
+  if(currentTool==='select'){
+    if(hitTestSelection(pos)){ movingSelection=true; moveUndoSaved=false; moveLastPos=pos.clone(); renderer.domElement.setPointerCapture(e.pointerId); renderer.domElement.style.cursor='move'; return; }
+    clearSelection(); selectPoints=[pos]; renderer.domElement.setPointerCapture(e.pointerId); return;
+  }
   if(currentTool==='lasso'||currentTool==='gradient'||currentTool==='radial'){lassoPoints=[pos];renderer.domElement.setPointerCapture(e.pointerId);return;}
   if(currentTool==='line'){lineStart=pos;renderer.domElement.setPointerCapture(e.pointerId);return;}
   saveUndoState();currentStrokeData=[{pos,pressure:getPressure(e)}];renderer.domElement.setPointerCapture(e.pointerId);
@@ -2249,7 +2400,16 @@ renderer.domElement.addEventListener('pointermove',e=>{
   if(!isDrawing)return;
   if(currentTool==='eraser'){eraseAt(getWorldPos(e),eraserSize);return;}
   if(currentTool==='nudge'){const pos=getWorldPos(e);if(lastNudgePos){const dx=pos.x-lastNudgePos.x,dy=pos.y-lastNudgePos.y;if(dx||dy)nudgeAt(lastNudgePos,dx,dy);}lastNudgePos=pos.clone();return;}
-  if(currentTool==='select'){const pos=getWorldPos(e),last=selectPoints[selectPoints.length-1];if(pos.distanceTo(last)>=3){selectPoints.push(pos);updateSelectPreview();}return;}
+  if(currentTool==='select'){
+    if(movingSelection){
+      const pos=getWorldPos(e);
+      const dx=pos.x-moveLastPos.x, dy=pos.y-moveLastPos.y;
+      if(dx||dy){ if(!moveUndoSaved){moveUndoSaved=true;saveUndoState();} translateSelection(dx,dy); }
+      moveLastPos=pos;
+      return;
+    }
+    const pos=getWorldPos(e),last=selectPoints[selectPoints.length-1];if(pos.distanceTo(last)>=3){selectPoints.push(pos);updateSelectPreview();}return;
+  }
   if(currentTool==='lasso'||currentTool==='gradient'||currentTool==='radial'){const pos=getWorldPos(e),last=lassoPoints[lassoPoints.length-1];if(pos.distanceTo(last)>=3){lassoPoints.push(pos);updateLassoPreview(currentTool==='gradient'||currentTool==='radial');}return;}
   if(currentTool==='line'&&lineStart){clearPreviews();const pos=getWorldPos(e);const ld=[{pos:lineStart.clone(),pressure:.5},{pos,pressure:.5}];previewMesh=buildRibbonMesh(ld,brushSize,currentColor,{opacity:.5});if(previewMesh)scene.add(previewMesh);if(symmetryEnabled){mirrorPreviewMesh=buildRibbonMesh(mirrorStrokeData(ld),brushSize,currentColor,{opacity:.5});if(mirrorPreviewMesh)scene.add(mirrorPreviewMesh);}return;}
   if(e.getCoalescedEvents){for(const ce of e.getCoalescedEvents())addSample(ce);}else addSample(e);
@@ -2267,7 +2427,10 @@ renderer.domElement.addEventListener('pointerup',e=>{
   if(currentTool==='nudge'){lastNudgePos=null;return;}
   clearPreviews();
   if(currentTool==='line'&&lineStart){const pos=getWorldPos(e);if(lineStart.distanceTo(pos)>2){saveUndoState();const steps=Math.max(2,Math.ceil(lineStart.distanceTo(pos)/2));const ld=[];for(let i=0;i<=steps;i++){const t=i/steps;ld.push({pos:new THREE.Vector3(lineStart.x+(pos.x-lineStart.x)*t,lineStart.y+(pos.y-lineStart.y)*t,0),pressure:.5});}commitStroke(ld,currentColor,brushSize,1,false);}lineStart=null;updateStatus();return;}
-  if(currentTool==='select'){finalizeSelection();return;}
+  if(currentTool==='select'){
+    if(movingSelection){ movingSelection=false; moveLastPos=null; renderer.domElement.style.cursor='crosshair'; syncFrameStrokes(); updateStatus(); return; }
+    finalizeSelection();return;
+  }
   if(currentTool==='lasso'||currentTool==='gradient'||currentTool==='radial'){if(lassoPoints.length>=3){saveUndoState();const op=currentTool==='gradient'?.3:currentTool==='radial'?.45:1;let data=lassoPoints.map(p=>({pos:p.clone(),pressure:.5}));if(smoothLevel>0&&currentTool!=='radial')data=smoothStrokeData(data);commitStroke(data,currentColor,0,op,true,currentTool==='radial');}lassoPoints=[];updateStatus();return;}
   if(!currentStrokeData.length)return;
   commitStroke([...currentStrokeData],currentColor,getActiveSize(),1,false);currentStrokeData=[];updateStatus();
@@ -2297,6 +2460,16 @@ window.addEventListener('keydown',e=>{
   if(e.key==='q')setTool('select');
   if(e.key==='u')setTool('nudge');
   if(e.key==='Escape')clearSelection();
+  if(currentTool==='select'&&selectedStrokes.length&&['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)){
+    e.preventDefault();
+    const step=e.shiftKey?10:1;
+    let dx=0,dy=0;
+    if(e.key==='ArrowLeft')dx=-step; if(e.key==='ArrowRight')dx=step;
+    if(e.key==='ArrowUp')dy=step; if(e.key==='ArrowDown')dy=-step;
+    saveUndoState();
+    translateSelection(dx,dy);
+    syncFrameStrokes();
+  }
   if(e.key==='`'||e.key==='~')setTool(currentTool==='eraser'?'pen':'eraser');
   if(e.key==='t')togglePressure();
   if(e.key==='s'&&!e.ctrlKey&&!e.metaKey)toggleSmoothing();
@@ -2379,18 +2552,24 @@ document.getElementById('bg-tex-slider').addEventListener('input',e=>{
 // CLEAR
 // ════════════════════════════════════════
 document.getElementById('btn-clear').addEventListener('click',()=>{
-  if(!strokes.length)return;saveUndoState();
+  if(!strokes.length)return;
+  const anyLocked=layers.some(l=>l.locked);
+  saveUndoState();
   if(maskEnabled){maskEnabled=false;maskBaseSnapshot=null;document.getElementById('btn-mask').classList.remove('toggle-on');}
-  // Nuke ALL strokes from ALL layers
-  for(const layer of layers){
+  // Nuke strokes from unlocked draw layers only; locked and ref layers are preserved
+  for(let li=0;li<layers.length;li++){
+    const layer=layers[li];
+    if(layer.locked || layer.kind==='ref')continue;
     while(layer.group.children.length>0){const c=layer.group.children[0];layer.group.remove(c);c.geometry?.dispose();c.material?.dispose();}
     layer.strokes=[];
   }
-  strokes=[];renderOrderCounter=0;clearPreviews();clearSelection();
+  strokes=strokes.filter(s=>layers[s.layerIdx]?.locked || layers[s.layerIdx]?.kind==='ref');
+  renderOrderCounter=0;clearPreviews();clearSelection();
   maskUniforms.maskClipActive.value=0;
   syncFrameStrokes();
   updateOnion();
   updateStatus();
+  if(anyLocked)showToast('Cleared unlocked layers');
 });
 
 // ════════════════════════════════════════
@@ -2638,6 +2817,163 @@ async function exportAnimation(){
   if(symmetryEnabled)updateSymmetryOverlay();showRefs();updateOnion();updateTimelineUI();updateStatus();isExporting=false;
   if(success)showToast('Animation exported');
 }
+
+// ════════════════════════════════════════
+// PROJECT SAVE / LOAD (.nib — plain JSON, all client-side)
+// ════════════════════════════════════════
+function serializeStroke(s){
+  const o={pts:[],c:s.color,s:s.size,o:s.opacity,li:s.layerIdx??0};
+  for(const d of s.strokeData)o.pts.push(+d.pos.x.toFixed(2),+d.pos.y.toFixed(2),+(d.pressure??0.5).toFixed(3));
+  if(s.isLasso)o.ls=1; if(s.isRadial)o.rd=1; if(s.isMaskShape)o.mS=1; if(s.isMasked)o.mk=1;
+  if(s.maskSnapshot)o.msk=s.maskSnapshot.map(poly=>poly.map(pt=>[+pt.x.toFixed(2),+pt.y.toFixed(2)]));
+  if(s.smooth!==undefined)o.sm=s.smooth;
+  if(s.pressureOn!==undefined)o.pr=s.pressureOn?1:0;
+  // Baked threshold images: embed texture as PNG dataURL
+  const map=s.mesh.material?.map;
+  if(map&&map.image){
+    try{
+      const src=map.image;
+      let cv=src;
+      if(!(src instanceof HTMLCanvasElement)){ cv=document.createElement('canvas'); cv.width=src.naturalWidth||src.width; cv.height=src.naturalHeight||src.height; cv.getContext('2d').drawImage(src,0,0); }
+      o.img={data:cv.toDataURL('image/png'),x:s.mesh.position.x,y:s.mesh.position.y,
+             w:s.mesh.geometry.parameters?.width||100,h:s.mesh.geometry.parameters?.height||100};
+    }catch(_){}
+  }
+  return o;
+}
+
+function specFromSaved(o){
+  const sd=[];
+  for(let i=0;i+2<o.pts.length;i+=3)sd.push({pos:new THREE.Vector3(o.pts[i],o.pts[i+1],0),pressure:o.pts[i+2]});
+  return {strokeData:sd,color:o.c,size:o.s,opacity:o.o,isLasso:!!o.ls,isRadial:!!o.rd,isMaskShape:!!o.mS,isMasked:!!o.mk,
+    maskSnapshot:o.msk?o.msk.map(poly=>poly.map(pt=>new THREE.Vector3(pt[0],pt[1],0))):null,
+    smooth:o.sm,pressureOn:o.pr===undefined?undefined:!!o.pr,layerIdx:o.li||0};
+}
+
+function buildSavedImageStroke(o){
+  return new Promise(res=>{
+    const im=new Image();
+    im.onload=()=>{
+      const c=document.createElement('canvas');c.width=im.width;c.height=im.height;
+      c.getContext('2d').drawImage(im,0,0);
+      const tex=new THREE.CanvasTexture(c);tex.needsUpdate=true;
+      const mat=new THREE.MeshBasicMaterial({map:tex,transparent:true,depthTest:false,depthWrite:false,side:THREE.DoubleSide});
+      const mesh=new THREE.Mesh(new THREE.PlaneGeometry(o.img.w,o.img.h),mat);
+      mesh.position.set(o.img.x,o.img.y,0);
+      res(mesh);
+    };
+    im.onerror=()=>res(null);
+    im.src=o.img.data;
+  });
+}
+
+function saveProject(){
+  stopPlayback(); syncFrameStrokes();
+  const P={
+    app:'NIB',version:1,
+    fps:animFps,bgColor,bgTexStrength,
+    activeFrameIdx,activeLayerIdx,
+    loopIn,loopOut,
+    symmetry:{on:symmetryEnabled,ax:symA.x,ay:symA.y,bx:symB.x,by:symB.y},
+    layers:layers.filter(l=>l.kind!=='ref').map(l=>({name:l.name,depthVal:l.depthVal??null,holdSrc:l.holdSrc??null,locked:!!l.locked,visible:l.visible!==false,opacity:l.opacity??1})),
+    frames:frames.map(f=>({cam:{...f.cam},hold:f.hold||1,strokes:f.strokes.map(serializeStroke)})),
+  };
+  const blob=new Blob([JSON.stringify(P)],{type:'application/json'});
+  const url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download='nib-project.nib';a.click();URL.revokeObjectURL(url);
+  showToast('Project saved — keep the .nib file, LOAD it to continue');
+}
+
+async function loadProject(file){
+  let P;
+  try{ P=JSON.parse(await file.text()); }catch(_){ showToast('Load failed — not a valid file'); return; }
+  if(!P||P.app!=='NIB'||!Array.isArray(P.frames)||!Array.isArray(P.layers)){ showToast('Not a NIB project file'); return; }
+  try{
+    stopPlayback(); clearSelection(); clearOnion(); clearPreviews();
+    isDrawing=false; lassoPoints=[]; lineStart=null; selectPoints=[];
+    // Dispose everything current
+    syncFrameStrokes();
+    for(const fr of frames)for(const st of fr.strokes){ st.mesh.geometry?.dispose(); st.mesh.material?.dispose(); }
+    layers.forEach(l=>scene.remove(l.group));
+    layers.length=0; frames.length=0; attachedStrokes=[];
+    // Layers
+    for(const ls of P.layers){
+      const g=new THREE.Group(); scene.add(g);
+      const lo={name:ls.name||`Layer ${layers.length+1}`,group:g,depth:layers.length,strokes:[],kind:'draw',visible:ls.visible!==false,opacity:ls.opacity??1,locked:!!ls.locked};
+      if(ls.depthVal!==null&&ls.depthVal!==undefined)lo.depthVal=ls.depthVal;
+      if(ls.holdSrc!==null&&ls.holdSrc!==undefined)lo.holdSrc=ls.holdSrc;
+      layers.push(lo);
+      applyLayerVisualState(lo);
+    }
+    if(!layers.length){const g=new THREE.Group();scene.add(g);layers.push({name:'Layer 1',group:g,depth:0,strokes:[],kind:'draw',visible:true,opacity:1});}
+    // Frames + strokes
+    for(const fs of P.frames){
+      const frStrokes=[];
+      for(const o of fs.strokes||[]){
+        const spec=specFromSaved(o);
+        let m;
+        if(o.img)m=await buildSavedImageStroke(o);
+        else m=buildStrokeFromSpec(spec);
+        if(!m)continue;
+        // Masked strokes: clip geometrically on load (equivalent to baking)
+        if(!o.img&&spec.isMasked&&spec.maskSnapshot?.length){
+          if(spec.isLasso)m.geometry=subdivideFillGeo(m.geometry,3);
+          if(!clipMeshToMask(m,spec.maskSnapshot)){ m.geometry?.dispose(); m.material?.dispose(); continue; }
+          spec.isMasked=false; spec.maskSnapshot=null;
+        }
+        const li=Math.min(spec.layerIdx,layers.length-1);
+        m.renderOrder=li*100000+frStrokes.length;
+        frStrokes.push({mesh:m,strokeData:spec.strokeData,color:spec.color,size:spec.size,opacity:spec.opacity,
+          isLasso:spec.isLasso,isRadial:spec.isRadial,isMaskShape:spec.isMaskShape,isMasked:spec.isMasked,
+          maskSnapshot:spec.maskSnapshot,smooth:spec.smooth,pressureOn:spec.pressureOn,layerIdx:li,
+          drawStartAt:Date.now(),createdAt:Date.now()});
+      }
+      frames.push({strokes:frStrokes,cam:fs.cam?{...fs.cam}:defaultCam(),hold:fs.hold||1,undoStack:[],redoStack:[]});
+    }
+    if(!frames.length)frames.push({strokes:[],cam:defaultCam(),hold:1,undoStack:[],redoStack:[]});
+    // Globals
+    animFps=[6,12,24].includes(P.fps)?P.fps:12;
+    document.getElementById('tl-fps').value=String(animFps);
+    bgColor=P.bgColor||'#ffffff'; bgTexStrength=P.bgTexStrength??0;
+    document.getElementById('bg-color-input').value=bgColor;
+    document.getElementById('bg-tex-slider').value=bgTexStrength;
+    document.getElementById('bg-tex-val').textContent=bgTexStrength;
+    updateBackground();
+    loopIn=(P.loopIn!==null&&P.loopIn!==undefined&&P.loopIn<frames.length)?P.loopIn:null;
+    loopOut=(P.loopOut!==null&&P.loopOut!==undefined&&P.loopOut<frames.length)?P.loopOut:null;
+    if(P.symmetry){
+      symmetryEnabled=!!P.symmetry.on;
+      symA.set(P.symmetry.ax||0,P.symmetry.ay||0,0);
+      symB.set(P.symmetry.bx||0,P.symmetry.by||0,0);
+      document.getElementById('btn-symmetry').classList.toggle('toggle-on',symmetryEnabled);
+      updateSymmetryOverlay();
+    }
+    // Mask session off after load
+    maskEnabled=false; maskBaseSnapshot=null;
+    document.getElementById('btn-mask').classList.remove('toggle-on');
+    maskUniforms.maskClipActive.value=0;
+    // Active pointers + stack rebind
+    activeFrameIdx=Math.min(P.activeFrameIdx||0,frames.length-1);
+    activeLayerIdx=Math.min(P.activeLayerIdx||0,layers.length-1);
+    strokes=frames[activeFrameIdx].strokes;
+    undoStack=frames[activeFrameIdx].undoStack;
+    redoStack=frames[activeFrameIdx].redoStack;
+    timelineUndoStack=[];
+    renderOrderCounter=frames.reduce((mx,f)=>Math.max(mx,f.strokes.length),0)+1;
+    flatCam();
+    attachFrameMeshes(frames[activeFrameIdx]);
+    updateVideoRefs(); updateLayerUI(); updateTimelineUI(); updateOnion(); updateStatus();
+    showToast(`Project loaded — ${frames.length} frames, ${layers.length} layers`);
+  }catch(err){ console.error('Load failed:',err); showToast('Load failed — file may be corrupted'); }
+}
+
+document.getElementById('btn-save').addEventListener('click',saveProject);
+document.getElementById('btn-load').addEventListener('click',()=>document.getElementById('project-file-input').click());
+document.getElementById('project-file-input').addEventListener('change',e=>{
+  const f=e.target.files?.[0];
+  if(f)loadProject(f);
+  e.target.value='';
+});
 
 // ════════════════════════════════════════
 // UTILS
