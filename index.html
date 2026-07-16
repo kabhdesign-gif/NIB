@@ -92,6 +92,7 @@ input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;hei
 .frame-box.loop-in.loop-out{box-shadow:inset 3px 0 0 #2f9e5f,inset -3px 0 0 #cc3333}
 .frame-box .hold-badge{font-size:7px;color:inherit;opacity:.7;margin-left:1px}
 #audio-wave{flex-basis:100%;height:22px;border:1px solid #eee;border-radius:3px;margin-top:3px;display:none}
+#tl-tween-thresh{width:60px;height:3px}
 .timeline button{background:none;border:1px solid transparent;border-radius:3px;cursor:pointer;font-family:inherit;font-size:10px;padding:3px 6px;color:#444}
 .timeline button:hover{border-color:#ccc;color:#000}
 .timeline button.toggle-on{background:#000;color:#fff}
@@ -195,6 +196,8 @@ svg{display:inline;vertical-align:middle}
   <div class="row"><span>Glow (radial gradient)</span><span class="key">R</span></div>
   <div class="row"><span>Lasso Select</span><span class="key">Q</span></div>
   <div class="row"><span>Move selection</span><span>Drag inside · Arrow keys</span></div>
+  <div class="row"><span>Rotate selection</span><span>Alt+drag inside</span></div>
+  <div class="row"><span>Scale selection</span><span>Shift+drag inside</span></div>
   <div class="row"><span>Layer lock (blocks draw/erase/nudge/select)</span><span>🔒 in layer panel</span></div>
   <div class="row"><span>Layer visibility (show/hide)</span><span>👁 in layer panel</span></div>
   <div class="row"><span>Layer opacity</span><span>Slider in layer panel</span></div>
@@ -252,6 +255,8 @@ svg{display:inline;vertical-align:middle}
   <button id="tl-del" title="Delete frame">×</button>
   <button id="tl-onion" title="Onion skin: off/±1/±2 (O)">On</button>
   <button id="tl-tween" title="Insert tween between this & next frame. Shift+click: tween ALL pairs (smooths whole animation)">TW</button>
+  <input type="range" id="tl-tween-thresh" min="5" max="100" value="35" step="5" title="Tween pairing threshold (%) — lower = strict (more fade in/out), higher = loose (more morphing)">
+  <span id="tl-tween-thresh-val" style="font-size:8px;color:#888;min-width:26px">35%</span>
   <button id="tl-flip" title="Flip view horizontally (Shift+F)">⇋</button>
   <select id="tl-fps" title="FPS"><option value="6">6fps</option><option value="12" selected>12fps</option><option value="24">24fps</option></select>
   <canvas id="audio-wave" width="600" height="22" title="Audio reference — drop an audio file"></canvas>
@@ -312,10 +317,13 @@ let activeFrameIdx = 0;
 let animFps = 12;
 let isPlaying = false, playStart = 0, playLastIdx = -1;
 let onionEnabled = false;
+let tweenThreshold = 0.35; // 0.05-1.0, controls pairing strictness
 let camDragging = false, camStartX = 0, camStartY = 0, camStartCam = null;
 let selectPoints = [], selectedStrokes = [];
 let lastSelectPoly = null, selectionOutlineMesh = null;
 let movingSelection = false, moveLastPos = null, moveUndoSaved = false;
+let rotatingSelection = false, rotateStartAngle = 0, rotateAppliedTotal = 0, rotateCenter = null;
+let scalingSelection = false, scaleStartDist = 0, scaleAppliedTotal = 1, scaleCenter = null;
 
 // Layers
 const layers = [];
@@ -1037,28 +1045,95 @@ function buildStrokeFromSpec(d){
   if(m&&d.isMasked)forcePrepareMaskClip(m);
   return m;
 }
+// Compute a stroke's centroid (average point position)
+function strokeCentroid(s){
+  let cx=0,cy=0,n=s.strokeData.length; if(!n)return {x:0,y:0};
+  for(const d of s.strokeData){ cx+=d.pos.x; cy+=d.pos.y; }
+  return { x:cx/n, y:cy/n };
+}
+
+// Bounding box diagonal — used as a size proxy
+function strokeDiag(s){
+  if(!s.strokeData.length)return 0;
+  let mnx=Infinity,mny=Infinity,mxx=-Infinity,mxy=-Infinity;
+  for(const d of s.strokeData){ if(d.pos.x<mnx)mnx=d.pos.x; if(d.pos.y<mny)mny=d.pos.y; if(d.pos.x>mxx)mxx=d.pos.x; if(d.pos.y>mxy)mxy=d.pos.y; }
+  return Math.hypot(mxx-mnx,mxy-mny);
+}
+
+// Similarity cost: lower = more similar. Rejects incompatible types outright.
+function strokePairCost(a,b){
+  if(a.isRadial!==b.isRadial)return Infinity;
+  if(a.isLasso!==b.isLasso)return Infinity;
+  if(a.color!==b.color)return Infinity; // color change → not the same stroke conceptually
+  const ca=strokeCentroid(a), cb=strokeCentroid(b);
+  const dist=Math.hypot(ca.x-cb.x, ca.y-cb.y);
+  const da=strokeDiag(a), db=strokeDiag(b);
+  const sizeDiff=Math.abs(da-db);
+  const sizeAvg=Math.max(1,(da+db)/2);
+  const lenRatio=Math.max(a.strokeData.length,b.strokeData.length)/Math.max(1,Math.min(a.strokeData.length,b.strokeData.length));
+  // Distance is dominant; size difference and length ratio contribute mildly
+  return dist + sizeDiff*0.5 + (lenRatio-1)*20;
+}
+
+// Greedy best-match pairing: repeatedly pick the lowest-cost pair until nothing left.
+// Threshold: reject pairs that are "too different" (would look worse tweened than fading).
+function pairStrokes(A, B, thresholdMul){
+  const remainA=new Set(A), remainB=new Set(B);
+  const pairs=[]; const unmatchedA=[], unmatchedB=[];
+  const canvasDiag=Math.hypot(window.innerWidth, window.innerHeight);
+  const threshold=canvasDiag*(thresholdMul||tweenThreshold); // beyond this distance, fade instead of morph
+  // Build all viable pair costs
+  const cands=[];
+  for(const a of A){ for(const b of B){ const c=strokePairCost(a,b); if(c<Infinity && c<threshold)cands.push({a,b,c}); } }
+  cands.sort((x,y)=>x.c-y.c);
+  for(const {a,b,c} of cands){
+    if(remainA.has(a) && remainB.has(b)){ pairs.push({a,b,c}); remainA.delete(a); remainB.delete(b); }
+  }
+  for(const a of remainA)unmatchedA.push(a);
+  for(const b of remainB)unmatchedB.push(b);
+  return { pairs, unmatchedA, unmatchedB };
+}
+
+function tweenSpecFromPair(a, b, li){
+  const len=Math.max(a.strokeData.length,b.strokeData.length);
+  const ra=resampleStrokeData(a.strokeData,len), rb=resampleStrokeData(b.strokeData,len);
+  const sd=ra.map((p,j)=>({pos:new THREE.Vector3((p.pos.x+rb[j].pos.x)/2,(p.pos.y+rb[j].pos.y)/2,0),pressure:(p.pressure+rb[j].pressure)/2}));
+  // Blend size and opacity too
+  const size=(a.size+b.size)/2;
+  const opacity=(a.opacity+b.opacity)/2;
+  return {strokeData:sd,color:a.color,size,opacity,isLasso:a.isLasso,isRadial:a.isRadial,isMaskShape:a.isMaskShape,isMasked:a.isMasked,maskSnapshot:a.maskSnapshot?cloneMaskSnapshot(a.maskSnapshot):null,smooth:a.smooth,pressureOn:a.pressureOn,layerIdx:li};
+}
+
+function fadeSpec(s, li, alphaMul){
+  return {strokeData:s.strokeData.map(d=>({pos:d.pos.clone(),pressure:d.pressure})),color:s.color,size:s.size,opacity:s.opacity*alphaMul,isLasso:s.isLasso,isRadial:s.isRadial,isMaskShape:s.isMaskShape,isMasked:s.isMasked,maskSnapshot:s.maskSnapshot?cloneMaskSnapshot(s.maskSnapshot):null,smooth:s.smooth,pressureOn:s.pressureOn,layerIdx:li};
+}
+
 function tweenBetween(iA){
   const A=frames[iA],B=frames[iA+1];
   if(!A||!B)return false;
   const specs=[];
-  // pair strokes per layer by order
   for(let li=0;li<layers.length;li++){
-    const as=A.strokes.filter(s=>s.layerIdx===li), bs=B.strokes.filter(s=>s.layerIdx===li);
-    const n=Math.max(as.length,bs.length);
-    for(let k=0;k<n;k++){
-      const a=as[k],b=bs[k];
-      if(a&&b&&a.isLasso===b.isLasso&&a.isRadial===b.isRadial){
-        const len=Math.max(a.strokeData.length,b.strokeData.length);
-        const ra=resampleStrokeData(a.strokeData,len), rb=resampleStrokeData(b.strokeData,len);
-        const sd=ra.map((p,j)=>({pos:new THREE.Vector3((p.pos.x+rb[j].pos.x)/2,(p.pos.y+rb[j].pos.y)/2,0),pressure:(p.pressure+rb[j].pressure)/2}));
-        specs.push({strokeData:sd,color:a.color,size:a.size,opacity:a.opacity,isLasso:a.isLasso,isRadial:a.isRadial,isMaskShape:a.isMaskShape,isMasked:a.isMasked,maskSnapshot:a.maskSnapshot?cloneMaskSnapshot(a.maskSnapshot):null,smooth:a.smooth,pressureOn:a.pressureOn,layerIdx:li});
-      }else if(a){
-        specs.push({strokeData:a.strokeData.map(d=>({pos:d.pos.clone(),pressure:d.pressure})),color:a.color,size:a.size,opacity:a.opacity,isLasso:a.isLasso,isRadial:a.isRadial,isMaskShape:a.isMaskShape,isMasked:a.isMasked,maskSnapshot:a.maskSnapshot?cloneMaskSnapshot(a.maskSnapshot):null,smooth:a.smooth,pressureOn:a.pressureOn,layerIdx:li});
-      }
+    const layer=layers[li];
+    // Locked or held layers: don't tween, just carry through from A
+    if(layer.locked || layer.holdSrc!==undefined){
+      for(const s of A.strokes){ if(s.layerIdx===li)specs.push(fadeSpec(s,li,1)); }
+      continue;
     }
+    const as=A.strokes.filter(s=>s.layerIdx===li);
+    const bs=B.strokes.filter(s=>s.layerIdx===li);
+    // Radials & mask shapes: pair strictly, don't fade (they're semantic markers)
+    // Everything else: best-match with fade for unmatched
+    const { pairs, unmatchedA, unmatchedB } = pairStrokes(as, bs);
+    // Matched pairs → morphed midpoint
+    for(const {a,b} of pairs)specs.push(tweenSpecFromPair(a,b,li));
+    // Only in A (erased in B) → fade out to 50% at midpoint
+    for(const a of unmatchedA)specs.push(fadeSpec(a,li,0.5));
+    // Only in B (new in B) → fade in from 50% at midpoint
+    for(const b of unmatchedB)specs.push(fadeSpec(b,li,0.5));
   }
   const tw={strokes:[],cam:lerpCam(A.cam,B.cam,.5),hold:1};
   for(const d of specs){
+    if(d.opacity<=0.01)continue;
     const m=buildStrokeFromSpec(d); if(!m)continue;
     m.renderOrder=(d.layerIdx??0)*100000+tw.strokes.length;
     tw.strokes.push({mesh:m,strokeData:d.strokeData,color:d.color,size:d.size,opacity:d.opacity,isLasso:!!d.isLasso,isRadial:!!d.isRadial,isMaskShape:!!d.isMaskShape,isMasked:!!d.isMasked,maskSnapshot:d.maskSnapshot,smooth:d.smooth,pressureOn:d.pressureOn,layerIdx:d.layerIdx,drawStartAt:Date.now(),createdAt:Date.now()});
@@ -1133,7 +1208,7 @@ function finalizeSelection(){
     if(selectionOutlineMesh){selectionOutlineMesh.renderOrder=900001;selectionGroup.add(selectionOutlineMesh);}
   }
   selectPoints=[];
-  showToast(selectedStrokes.length?`Selected ${selectedStrokes.length} stroke${selectedStrokes.length>1?'s':''} — drag inside to move, Ctrl+Shift+C to copy`:'Nothing selected');
+  showToast(selectedStrokes.length?`Selected ${selectedStrokes.length} — drag=move, Alt+drag=rotate, Shift+drag=scale`:'Nothing selected');
 }
 function hitTestSelection(pos){
   if(!selectedStrokes.length||!lastSelectPoly)return false;
@@ -1148,6 +1223,54 @@ function translateSelection(dx,dy){
   }
   if(lastSelectPoly)for(const p of lastSelectPoly){ p.x+=dx; p.y+=dy; }
   if(selectionOutlineMesh)selectionOutlineMesh.geometry.translate(dx,dy,0);
+}
+
+function selectionCenter(){
+  if(!lastSelectPoly?.length)return {x:0,y:0};
+  let cx=0,cy=0;
+  for(const p of lastSelectPoly){ cx+=p.x; cy+=p.y; }
+  return { x:cx/lastSelectPoly.length, y:cy/lastSelectPoly.length };
+}
+
+// Rotate all selected strokes around center by delta radians
+function rotateSelection(dRad, center){
+  if(!dRad)return;
+  const c=center||selectionCenter(), cos=Math.cos(dRad), sin=Math.sin(dRad);
+  const rot=(x,y)=>({ x:c.x+(x-c.x)*cos-(y-c.y)*sin, y:c.y+(x-c.x)*sin+(y-c.y)*cos });
+  for(const s of selectedStrokes){
+    for(const d of s.strokeData){ const r=rot(d.pos.x,d.pos.y); d.pos.x=r.x; d.pos.y=r.y; }
+    // Apply same transform to buffer geometry vertices
+    const arr=s.mesh.geometry.getAttribute('position').array;
+    for(let i=0;i<arr.length;i+=3){ const r=rot(arr[i],arr[i+1]); arr[i]=r.x; arr[i+1]=r.y; }
+    s.mesh.geometry.attributes.position.needsUpdate=true;
+    s.mesh.geometry.computeBoundingSphere?.();
+  }
+  if(lastSelectPoly)for(const p of lastSelectPoly){ const r=rot(p.x,p.y); p.x=r.x; p.y=r.y; }
+  if(selectionOutlineMesh){
+    const arr=selectionOutlineMesh.geometry.getAttribute('position').array;
+    for(let i=0;i<arr.length;i+=3){ const r=rot(arr[i],arr[i+1]); arr[i]=r.x; arr[i+1]=r.y; }
+    selectionOutlineMesh.geometry.attributes.position.needsUpdate=true;
+  }
+}
+
+// Scale all selected strokes around center by factor
+function scaleSelection(factor, center){
+  if(factor===1||factor<=0)return;
+  const c=center||selectionCenter();
+  const sc=(x,y)=>({ x:c.x+(x-c.x)*factor, y:c.y+(y-c.y)*factor });
+  for(const s of selectedStrokes){
+    for(const d of s.strokeData){ const r=sc(d.pos.x,d.pos.y); d.pos.x=r.x; d.pos.y=r.y; }
+    const arr=s.mesh.geometry.getAttribute('position').array;
+    for(let i=0;i<arr.length;i+=3){ const r=sc(arr[i],arr[i+1]); arr[i]=r.x; arr[i+1]=r.y; }
+    s.mesh.geometry.attributes.position.needsUpdate=true;
+    s.mesh.geometry.computeBoundingSphere?.();
+  }
+  if(lastSelectPoly)for(const p of lastSelectPoly){ const r=sc(p.x,p.y); p.x=r.x; p.y=r.y; }
+  if(selectionOutlineMesh){
+    const arr=selectionOutlineMesh.geometry.getAttribute('position').array;
+    for(let i=0;i<arr.length;i+=3){ const r=sc(arr[i],arr[i+1]); arr[i]=r.x; arr[i+1]=r.y; }
+    selectionOutlineMesh.geometry.attributes.position.needsUpdate=true;
+  }
 }
 
 function copySelection(){
@@ -1270,6 +1393,10 @@ document.getElementById('tl-dup').addEventListener('click',()=>{stopPlayback();d
 document.getElementById('tl-del').addEventListener('click',()=>{stopPlayback();deleteFrame();});
 document.getElementById('tl-onion').addEventListener('click',toggleOnion);
 document.getElementById('tl-tween').addEventListener('click',e=>insertTween(e.shiftKey));
+document.getElementById('tl-tween-thresh').addEventListener('input',e=>{
+  tweenThreshold = parseInt(e.target.value)/100;
+  document.getElementById('tl-tween-thresh-val').textContent = e.target.value+'%';
+});
 document.getElementById('tl-flip').addEventListener('click',toggleFlip);
 document.getElementById('tl-fps').addEventListener('change',e=>{animFps=parseInt(e.target.value);stopPlayback();});
 updateTimelineUI();
@@ -2362,7 +2489,7 @@ renderer.domElement.addEventListener('wheel',e=>{
 renderer.domElement.addEventListener('pointerdown',e=>{
   if(e.button!==0||isExporting)return;
   if(isPlaying){stopPlayback();return;}
-  if(e.altKey){camDragging=true;camStartX=e.clientX;camStartY=e.clientY;camStartCam={...frames[activeFrameIdx].cam};renderer.domElement.setPointerCapture(e.pointerId);renderer.domElement.style.cursor='grab';return;}
+  if(e.altKey && !(currentTool==='select' && selectedStrokes.length && hitTestSelection(getWorldPos(e)))){camDragging=true;camStartX=e.clientX;camStartY=e.clientY;camStartCam={...frames[activeFrameIdx].cam};renderer.domElement.setPointerCapture(e.pointerId);renderer.domElement.style.cursor='grab';return;}
   if(penDetected&&e.pointerType==='touch')return;
 
   
@@ -2382,7 +2509,29 @@ renderer.domElement.addEventListener('pointerdown',e=>{
   if(currentTool==='eraser'){eraserUndoSaved=false;eraseAt(pos,eraserSize);return;}
   if(currentTool==='nudge'){nudgeUndoSaved=false;lastNudgePos=pos.clone();renderer.domElement.setPointerCapture(e.pointerId);return;}
   if(currentTool==='select'){
-    if(hitTestSelection(pos)){ movingSelection=true; moveUndoSaved=false; moveLastPos=pos.clone(); renderer.domElement.setPointerCapture(e.pointerId); renderer.domElement.style.cursor='move'; return; }
+    if(hitTestSelection(pos)){
+      if(e.altKey && selectedStrokes.length){
+        rotatingSelection=true; moveUndoSaved=false;
+        rotateCenter=selectionCenter();
+        rotateStartAngle=Math.atan2(pos.y-rotateCenter.y, pos.x-rotateCenter.x);
+        rotateAppliedTotal=0;
+        renderer.domElement.setPointerCapture(e.pointerId);
+        renderer.domElement.style.cursor='crosshair';
+        return;
+      }
+      if(e.shiftKey && selectedStrokes.length){
+        scalingSelection=true; moveUndoSaved=false;
+        scaleCenter=selectionCenter();
+        scaleStartDist=Math.max(1,Math.hypot(pos.x-scaleCenter.x, pos.y-scaleCenter.y));
+        scaleAppliedTotal=1;
+        renderer.domElement.setPointerCapture(e.pointerId);
+        renderer.domElement.style.cursor='crosshair';
+        return;
+      }
+      movingSelection=true; moveUndoSaved=false; moveLastPos=pos.clone();
+      renderer.domElement.setPointerCapture(e.pointerId); renderer.domElement.style.cursor='move';
+      return;
+    }
     clearSelection(); selectPoints=[pos]; renderer.domElement.setPointerCapture(e.pointerId); return;
   }
   if(currentTool==='lasso'||currentTool==='gradient'||currentTool==='radial'){lassoPoints=[pos];renderer.domElement.setPointerCapture(e.pointerId);return;}
@@ -2401,6 +2550,22 @@ renderer.domElement.addEventListener('pointermove',e=>{
   if(currentTool==='eraser'){eraseAt(getWorldPos(e),eraserSize);return;}
   if(currentTool==='nudge'){const pos=getWorldPos(e);if(lastNudgePos){const dx=pos.x-lastNudgePos.x,dy=pos.y-lastNudgePos.y;if(dx||dy)nudgeAt(lastNudgePos,dx,dy);}lastNudgePos=pos.clone();return;}
   if(currentTool==='select'){
+    if(rotatingSelection){
+      const pos=getWorldPos(e);
+      const angle=Math.atan2(pos.y-rotateCenter.y, pos.x-rotateCenter.x);
+      let target=angle-rotateStartAngle;
+      const d=target-rotateAppliedTotal;
+      if(d){ if(!moveUndoSaved){moveUndoSaved=true;saveUndoState();} rotateSelection(d,rotateCenter); rotateAppliedTotal=target; }
+      return;
+    }
+    if(scalingSelection){
+      const pos=getWorldPos(e);
+      const dist=Math.max(1,Math.hypot(pos.x-scaleCenter.x, pos.y-scaleCenter.y));
+      const target=Math.max(0.1,Math.min(20,dist/scaleStartDist));
+      const factor=target/scaleAppliedTotal;
+      if(factor!==1){ if(!moveUndoSaved){moveUndoSaved=true;saveUndoState();} scaleSelection(factor,scaleCenter); scaleAppliedTotal=target; }
+      return;
+    }
     if(movingSelection){
       const pos=getWorldPos(e);
       const dx=pos.x-moveLastPos.x, dy=pos.y-moveLastPos.y;
@@ -2428,6 +2593,8 @@ renderer.domElement.addEventListener('pointerup',e=>{
   clearPreviews();
   if(currentTool==='line'&&lineStart){const pos=getWorldPos(e);if(lineStart.distanceTo(pos)>2){saveUndoState();const steps=Math.max(2,Math.ceil(lineStart.distanceTo(pos)/2));const ld=[];for(let i=0;i<=steps;i++){const t=i/steps;ld.push({pos:new THREE.Vector3(lineStart.x+(pos.x-lineStart.x)*t,lineStart.y+(pos.y-lineStart.y)*t,0),pressure:.5});}commitStroke(ld,currentColor,brushSize,1,false);}lineStart=null;updateStatus();return;}
   if(currentTool==='select'){
+    if(rotatingSelection){ rotatingSelection=false; rotateCenter=null; renderer.domElement.style.cursor='crosshair'; syncFrameStrokes(); updateStatus(); return; }
+    if(scalingSelection){ scalingSelection=false; scaleCenter=null; renderer.domElement.style.cursor='crosshair'; syncFrameStrokes(); updateStatus(); return; }
     if(movingSelection){ movingSelection=false; moveLastPos=null; renderer.domElement.style.cursor='crosshair'; syncFrameStrokes(); updateStatus(); return; }
     finalizeSelection();return;
   }
@@ -2871,7 +3038,7 @@ function saveProject(){
   stopPlayback(); syncFrameStrokes();
   const P={
     app:'NIB',version:1,
-    fps:animFps,bgColor,bgTexStrength,
+    fps:animFps,bgColor,bgTexStrength,tweenThreshold,
     activeFrameIdx,activeLayerIdx,
     loopIn,loopOut,
     symmetry:{on:symmetryEnabled,ax:symA.x,ay:symA.y,bx:symB.x,by:symB.y},
@@ -2934,6 +3101,11 @@ async function loadProject(file){
     // Globals
     animFps=[6,12,24].includes(P.fps)?P.fps:12;
     document.getElementById('tl-fps').value=String(animFps);
+    if(typeof P.tweenThreshold==='number'&&P.tweenThreshold>=0.05&&P.tweenThreshold<=1){
+      tweenThreshold=P.tweenThreshold;
+      document.getElementById('tl-tween-thresh').value=String(Math.round(tweenThreshold*100));
+      document.getElementById('tl-tween-thresh-val').textContent=Math.round(tweenThreshold*100)+'%';
+    }
     bgColor=P.bgColor||'#ffffff'; bgTexStrength=P.bgTexStrength??0;
     document.getElementById('bg-color-input').value=bgColor;
     document.getElementById('bg-tex-slider').value=bgTexStrength;
